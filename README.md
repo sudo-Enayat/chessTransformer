@@ -1,5 +1,7 @@
 # ChessTransformer
 
+Warning: an NVIDIA GPU is required to run this app. The included models are CUDA-bound TorchScript exports and will not run on CPU-only systems.
+
 Web-playable chess UI with:
 
 - `Vs Friend`
@@ -15,8 +17,6 @@ Web-playable chess UI with:
 - NVIDIA GPU with CUDA support
 - Git LFS installed
 
-The bundled TorchScript models are CUDA-bound exports. CPU-only PyTorch is not supported for this app.
-
 ## Repository Notes
 
 - `models/SSChess_12M.pt` and `models/SSChess_78M_FP32.pt` are tracked with Git LFS.
@@ -30,7 +30,7 @@ The bundled TorchScript models are CUDA-bound exports. CPU-only PyTorch is not s
 ```powershell
 git lfs install
 git clone <repo-url>
-cd ChessTransformer
+cd chessTransformer
 ```
 
 2. Create and activate a virtual environment:
