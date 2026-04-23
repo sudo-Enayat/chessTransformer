@@ -1,0 +1,6 @@
+# Python 3.12 on Windows with NVIDIA CUDA support.
+# These models are CUDA-bound TorchScript exports and will not run on CPU-only PyTorch.
+--extra-index-url https://download.pytorch.org/whl/cu121
+Flask==3.1.3
+python-chess==1.11.2
+torch==2.5.1+cu121

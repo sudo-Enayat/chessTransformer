@@ -1,0 +1,1832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChessTransformer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-soft: rgba(15, 23, 42, 0.75);
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --accent: #f97316;
+            --accent-hover: #ea580c;
+            --text-light: #f8fafc;
+            --text-muted: #94a3b8;
+            --danger: #b91c1c;
+            --success: #10b981;
+            --highlight: rgba(253, 224, 71, 0.35);
+            --board-light: #f2e6cf;
+            --board-dark: #9f6f43;
+            --board-border: rgba(255, 255, 255, 0.12);
+            --app-bg:
+                radial-gradient(circle at top, rgba(59, 130, 246, 0.18), transparent 35%),
+                linear-gradient(180deg, #0b1120 0%, #0f172a 50%, #111827 100%);
+            --menu-bg:
+                radial-gradient(circle at top, rgba(96, 165, 250, 0.12), transparent 32%),
+                linear-gradient(135deg, #09111e 0%, #101827 54%, #182235 100%);
+            --menu-box-bg: rgba(12, 20, 33, 0.94);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: "Inter", sans-serif;
+        }
+
+        body {
+            min-height: 100vh;
+            background: var(--app-bg);
+            color: var(--text-light);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .container {
+            background: color-mix(in srgb, var(--surface) 92%, transparent);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 22px;
+            border-radius: 20px;
+            box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45);
+            display: flex;
+            gap: 20px;
+            width: fit-content;
+            align-items: flex-start;
+        }
+
+        .board-wrapper {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .captured-pieces {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            width: 28px;
+            height: 450px;
+            padding: 8px 4px;
+        }
+
+        .captured-piece {
+            width: 24px;
+            height: 24px;
+            background-size: contain;
+            background-repeat: no-repeat;
+            opacity: 0.9;
+        }
+
+        .board-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .board-container {
+            width: 450px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--board-border);
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+        }
+
+        .eval-bar-container {
+            width: 25px;
+            height: 450px;
+            background: #334155;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .eval-bar-fill {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            height: 50%;
+            background: #f8fafc;
+            transition: height 0.35s ease;
+        }
+
+        .mcts-stats-container {
+            height: 56px;
+        }
+
+        .mcts-stats {
+            background: var(--surface-soft);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 12px 14px;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 0.92rem;
+        }
+
+        .controls {
+            width: 365px;
+            display: flex;
+            flex-direction: column;
+            min-height: 520px;
+        }
+
+        .headline {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .headline h1 {
+            font-size: 1.85rem;
+            line-height: 1;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.92rem;
+            margin-top: 6px;
+        }
+
+        .mode-pill {
+            background: color-mix(in srgb, var(--primary) 16%, transparent);
+            border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+            color: color-mix(in srgb, var(--primary) 55%, white);
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 0.82rem;
+            white-space: nowrap;
+        }
+
+        .move-history {
+            background: rgba(0, 0, 0, 0.18);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 14px;
+            height: 380px;
+            overflow-y: auto;
+            margin-bottom: 14px;
+        }
+
+        .move-history h3 {
+            font-size: 1rem;
+            margin-bottom: 10px;
+            color: var(--text-muted);
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .moves-list {
+            font-size: 0.98rem;
+            line-height: 2;
+        }
+
+        .move-row {
+            display: grid;
+            grid-template-columns: 40px 60px 60px 1fr;
+            gap: 10px;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            padding: 6px 0;
+        }
+
+        .move-stats {
+            display: flex;
+            justify-content: flex-end;
+            gap: 6px;
+            font-size: 0.74rem;
+            color: var(--text-muted);
+        }
+
+        .controls-bottom {
+            margin-top: auto;
+            background: rgba(0, 0, 0, 0.18);
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        button {
+            appearance: none;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 16px;
+            background: var(--primary);
+            color: white;
+            font-size: 0.98rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+            box-shadow: 0 8px 18px color-mix(in srgb, var(--primary) 30%, transparent);
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            background: var(--primary-hover);
+        }
+
+        button.secondary {
+            background: #475569;
+            box-shadow: none;
+        }
+
+        button.secondary:hover {
+            background: #334155;
+        }
+
+        button.danger {
+            background: #991b1b;
+            box-shadow: none;
+        }
+
+        button.danger:hover {
+            background: #7f1d1d;
+        }
+
+        button.accent {
+            background: linear-gradient(135deg, var(--accent), #ef4444);
+            box-shadow: 0 10px 20px rgba(239, 68, 68, 0.22);
+        }
+
+        button.accent:hover {
+            background: linear-gradient(135deg, var(--accent-hover), #dc2626);
+        }
+
+        .predict-btn {
+            width: 100%;
+            background: #8b5cf6;
+            box-shadow: 0 8px 18px rgba(139, 92, 246, 0.24);
+        }
+
+        .predict-btn:hover {
+            background: #7c3aed;
+        }
+
+        .status {
+            margin-top: 0;
+            padding: 14px;
+            background: rgba(15, 23, 42, 0.7);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .status span {
+            color: #7dd3fc;
+            font-weight: 600;
+        }
+
+        .menu-overlay,
+        .promotion-overlay {
+            position: fixed;
+            inset: 0;
+            background: var(--menu-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 20px;
+        }
+
+        .menu-box,
+        .promotion-box {
+            width: min(720px, 100%);
+            background: var(--menu-box-bg);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 18px;
+            padding: 28px;
+            box-shadow: 0 20px 44px rgba(0, 0, 0, 0.42);
+        }
+
+        .menu-screen {
+            display: none;
+        }
+
+        .menu-screen.active {
+            display: block;
+        }
+
+        .menu-title {
+            font-size: 1.85rem;
+            margin-bottom: 10px;
+        }
+
+        .menu-copy {
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 22px;
+        }
+
+        .menu-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .menu-buttons button {
+            width: 100%;
+        }
+
+        .selection-card {
+            background: transparent;
+            border: 1px solid var(--card-color, rgba(255, 255, 255, 0.16));
+            box-shadow: none;
+            padding: 18px 18px 16px;
+            min-height: 82px;
+            overflow: hidden;
+            text-align: left;
+            position: relative;
+            color: var(--text-light);
+            transition:
+                min-height 0.2s ease,
+                transform 0.2s ease,
+                background 0.2s ease,
+                border-color 0.2s ease,
+                box-shadow 0.2s ease;
+        }
+
+        .selection-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--card-color, rgba(255, 255, 255, 0.2)), color-mix(in srgb, var(--card-color, rgba(255, 255, 255, 0.2)) 52%, black));
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+
+        .selection-card:hover,
+        .selection-card:focus-visible {
+            min-height: 128px;
+            transform: translateY(-2px);
+            border-color: transparent;
+            box-shadow: 0 18px 34px color-mix(in srgb, var(--card-color, rgba(255, 255, 255, 0.2)) 24%, transparent);
+        }
+
+        .selection-card:hover::before,
+        .selection-card:focus-visible::before {
+            opacity: 1;
+        }
+
+        .selection-card-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .selection-card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .selection-card-title {
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+
+        .selection-card-meta {
+            font-size: 0.8rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: color-mix(in srgb, var(--card-color, white) 82%, white);
+        }
+
+        .selection-card-copy {
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+            transform: translateY(-6px);
+            color: rgba(248, 250, 252, 0.88);
+            font-size: 0.92rem;
+            line-height: 1.45;
+            transition: max-height 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .selection-card:hover .selection-card-copy,
+        .selection-card:focus-visible .selection-card-copy {
+            max-height: 72px;
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .selection-card:hover .selection-card-title,
+        .selection-card:hover .selection-card-meta,
+        .selection-card:hover .selection-card-copy,
+        .selection-card:focus-visible .selection-card-title,
+        .selection-card:focus-visible .selection-card-meta,
+        .selection-card:focus-visible .selection-card-copy {
+            color: var(--card-hover-text, #08111f);
+        }
+
+        .tier-novice {
+            --card-color: #5ea9ff;
+            --card-hover-text: #081528;
+        }
+
+        .tier-club {
+            --card-color: #f4dd7a;
+            --card-hover-text: #231d07;
+        }
+
+        .tier-expert {
+            --card-color: #facc15;
+            --card-hover-text: #261d00;
+        }
+
+        .tier-grandmaster {
+            --card-color: #fb923c;
+            --card-hover-text: #2b1401;
+        }
+
+        .tier-impossible {
+            --card-color: #6b7280;
+            --card-hover-text: #f8fafc;
+        }
+
+        .selection-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .tier-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .theme-card {
+            min-height: 108px;
+        }
+
+        .theme-preview {
+            height: 16px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            overflow: hidden;
+        }
+
+        .theme-preview span {
+            display: inline-block;
+            height: 100%;
+            width: 50%;
+        }
+
+        .loading-text {
+            margin-top: 16px;
+            color: #93c5fd;
+            font-size: 0.92rem;
+            display: none;
+        }
+
+        .menu-links {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .menu-links button {
+            flex: 1;
+        }
+
+        .back-btn:hover,
+        .back-btn:focus-visible {
+            background: #991b1b;
+            box-shadow: none;
+        }
+
+        .side-choice {
+            background: rgba(148, 163, 184, 0.14);
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            color: var(--text-light);
+            box-shadow: none;
+            min-height: 82px;
+            text-align: left;
+            padding: 16px 18px;
+        }
+
+        .side-choice:hover,
+        .side-choice:focus-visible {
+            transform: translateY(-1px);
+        }
+
+        .side-choice.white-choice {
+            border-color: rgba(248, 250, 252, 0.55);
+            color: #f8fafc;
+        }
+
+        .side-choice.white-choice:hover,
+        .side-choice.white-choice:focus-visible {
+            background: #f8fafc;
+            color: #111827;
+        }
+
+        .side-choice.black-choice {
+            border-color: rgba(15, 23, 42, 0.85);
+            color: #dbe4f0;
+        }
+
+        .side-choice.black-choice:hover,
+        .side-choice.black-choice:focus-visible {
+            background: #0f172a;
+            color: #f8fafc;
+        }
+
+        .side-choice-label {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1rem;
+            font-weight: 700;
+        }
+
+        .side-choice-label .pawn {
+            font-size: 1.2rem;
+            line-height: 1;
+        }
+
+        .side-choice-copy {
+            margin-top: 6px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .side-choice.white-choice:hover .side-choice-copy,
+        .side-choice.white-choice:focus-visible .side-choice-copy,
+        .side-choice.black-choice:hover .side-choice-copy,
+        .side-choice.black-choice:focus-visible .side-choice-copy {
+            color: inherit;
+        }
+
+        .promotion-overlay {
+            display: none;
+            z-index: 130;
+        }
+
+        .promotion-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .promotion-option {
+            background: rgba(59, 130, 246, 0.12);
+            border: 1px solid rgba(59, 130, 246, 0.22);
+            color: var(--text-light);
+            box-shadow: none;
+        }
+
+        .promotion-option:hover {
+            background: rgba(59, 130, 246, 0.22);
+        }
+
+        .highlight-last {
+            background-color: var(--highlight) !important;
+        }
+
+        .king-check {
+            background-color: rgba(239, 68, 68, 0.68) !important;
+            box-shadow: inset 0 0 14px rgba(239, 68, 68, 0.85);
+        }
+
+        .legal-dot {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 25%;
+            height: 25%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.26);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .legal-capture {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 85%;
+            height: 85%;
+            transform: translate(-50%, -50%);
+            border: 6px solid rgba(0, 0, 0, 0.26);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1;
+            box-sizing: border-box;
+        }
+
+        .piece-417db {
+            z-index: 10 !important;
+        }
+
+        .review-buttons {
+            display: none;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .review-buttons button {
+            flex: 1;
+            box-shadow: none;
+            padding: 12px 8px;
+        }
+
+        .review-buttons .accent {
+            background: linear-gradient(135deg, var(--accent), #ef4444);
+        }
+
+        .game-over-buttons {
+            display: none;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .game-over-buttons button {
+            flex: 1;
+            box-shadow: none;
+        }
+
+        #board .white-1e1d7 {
+            background: var(--board-light);
+            color: #5b4630;
+        }
+
+        #board .black-3c85d {
+            background: var(--board-dark);
+            color: #f8fafc;
+        }
+
+        @media (max-width: 1100px) {
+            body {
+                padding: 14px;
+            }
+
+            .container {
+                flex-direction: column;
+                width: 100%;
+                max-width: 760px;
+            }
+
+            .board-wrapper {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .controls {
+                width: 100%;
+                min-height: auto;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .container {
+                padding: 14px;
+            }
+
+            .board-wrapper {
+                gap: 8px;
+            }
+
+            .board-container,
+            .board-container #board {
+                width: min(88vw, 360px) !important;
+            }
+
+            .captured-pieces {
+                display: none;
+            }
+
+            .move-row {
+                grid-template-columns: 32px 1fr 1fr;
+            }
+
+            .move-row .move-stats {
+                display: none;
+            }
+
+            .mcts-stats {
+                flex-wrap: wrap;
+                justify-content: flex-start;
+            }
+
+            .selection-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="menuOverlay" class="menu-overlay">
+        <div class="menu-box">
+            <div id="mainMenu" class="menu-screen active">
+                <div class="menu-title"></div>
+                <div class="menu-copy">Choose a local two-player board or one of the Chess-Transformer difficulty tiers.</div>
+                <div class="menu-buttons">
+                    <button id="btnVsFriend" class="secondary">Vs Friend</button>
+                    <button id="btnVsAI" class="accent">Vs AI</button>
+                </div>
+            </div>
+
+            <div id="difficultyMenu" class="menu-screen">
+                <div class="menu-title">Choose Difficulty</div>
+                <div class="menu-copy">Hover a tier to inspect its Elo and behavior. Click one to load that engine.</div>
+                <div class="menu-buttons tier-stack">
+                    {% for tier in difficulty_tiers %}
+                    <button class="selection-card tier-btn tier-{{ tier.id }}" data-tier="{{ tier.id }}">
+                        <span class="selection-card-content">
+                            <span class="selection-card-top">
+                                <span class="selection-card-title">{{ tier.name }}</span>
+                                <span class="selection-card-meta">{{ tier.elo }} Elo</span>
+                            </span>
+                            <span class="selection-card-copy">{{ tier.description }}</span>
+                        </span>
+                    </button>
+                    {% endfor %}
+                </div>
+                <div id="loadingText" class="loading-text">Loading engine...</div>
+                <div class="menu-links">
+                    <button id="btnBackToMain" class="secondary back-btn">Back</button>
+                </div>
+            </div>
+
+            <div id="colorMenu" class="menu-screen">
+                <div class="menu-title">Play As</div>
+                <div class="menu-copy">Choose your side. If you play Black, the engine will make the first move.</div>
+                <div class="menu-buttons">
+                    <button id="btnWhiteSelect" class="side-choice white-choice">
+                        <span class="side-choice-label"><span class="pawn">♙</span><span>White</span></span>
+                        <span class="side-choice-copy">Play first and keep the board from White's side.</span>
+                    </button>
+                    <button id="btnBlackSelect" class="side-choice black-choice">
+                        <span class="side-choice-label"><span class="pawn">♟</span><span>Black</span></span>
+                        <span class="side-choice-copy">Let Chess-GPT open and play from Black's side.</span>
+                    </button>
+                </div>
+                <div class="menu-links">
+                    <button id="btnBackToDifficulty" class="secondary back-btn">Back</button>
+                </div>
+            </div>
+
+            <div id="themeMenu" class="menu-screen">
+                <div class="menu-title">Choose Board</div>
+                <div class="menu-copy">Pick the board style and UI palette for this game.</div>
+                <div class="menu-buttons selection-grid">
+                    <button class="selection-card theme-card" data-theme="wood" style="--card-color:#c08457; --card-hover-text:#26170a;">
+                        <span class="selection-card-content">
+                            <span class="selection-card-top">
+                                <span class="selection-card-title">Wood</span>
+                                <span class="selection-card-meta">Classic</span>
+                            </span>
+                            <span class="theme-preview"><span style="background:#f2e6cf;"></span><span style="background:#9f6f43;"></span></span>
+                            <span class="selection-card-copy">Warm oak tones with amber accents and a classic tournament look.</span>
+                        </span>
+                    </button>
+                    <button class="selection-card theme-card" data-theme="dark" style="--card-color:#64748b; --card-hover-text:#f8fafc;">
+                        <span class="selection-card-content">
+                            <span class="selection-card-top">
+                                <span class="selection-card-title">Dark</span>
+                                <span class="selection-card-meta">Slate</span>
+                            </span>
+                            <span class="theme-preview"><span style="background:#d5d9e0;"></span><span style="background:#4b5563;"></span></span>
+                            <span class="selection-card-copy">Cool slate tones with steel-blue accents and a low-glare board.</span>
+                        </span>
+                    </button>
+                    <button class="selection-card theme-card" data-theme="glass" style="--card-color:#67e8f9; --card-hover-text:#05242b;">
+                        <span class="selection-card-content">
+                            <span class="selection-card-top">
+                                <span class="selection-card-title">Glass</span>
+                                <span class="selection-card-meta">Crystal</span>
+                            </span>
+                            <span class="theme-preview"><span style="background:#dff7ff;"></span><span style="background:#6ea9c2;"></span></span>
+                            <span class="selection-card-copy">Frosted cyan tones with polished highlights and a lighter control palette.</span>
+                        </span>
+                    </button>
+                    <button class="selection-card theme-card" data-theme="forest" style="--card-color:#4ade80; --card-hover-text:#081b10;">
+                        <span class="selection-card-content">
+                            <span class="selection-card-top">
+                                <span class="selection-card-title">Forest</span>
+                                <span class="selection-card-meta">Emerald</span>
+                            </span>
+                            <span class="theme-preview"><span style="background:#dce9d5;"></span><span style="background:#4a6b3f;"></span></span>
+                            <span class="selection-card-copy">Muted green squares with pine-toned accents and a softer ambient background.</span>
+                        </span>
+                    </button>
+                </div>
+                <div class="menu-links">
+                    <button id="btnBackToPreviousSetup" class="secondary back-btn">Back</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="promotionOverlay" class="promotion-overlay">
+        <div class="promotion-box">
+            <div class="menu-title" style="font-size: 1.5rem;">Choose Promotion</div>
+            <div class="menu-copy">Select the piece for the pawn promotion.</div>
+            <div class="promotion-grid">
+                <button class="promotion-option" data-piece="q">Queen</button>
+                <button class="promotion-option" data-piece="r">Rook</button>
+                <button class="promotion-option" data-piece="b">Bishop</button>
+                <button class="promotion-option" data-piece="n">Knight</button>
+            </div>
+            <div class="menu-links">
+                <button id="promotionCancel" class="secondary back-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="board-wrapper">
+            <div id="capturedWhite" class="captured-pieces"></div>
+            <div class="eval-bar-container">
+                <div id="evalBar" class="eval-bar-fill"></div>
+            </div>
+            <div class="board-stack">
+                <div class="mcts-stats-container">
+                    <div id="mctsStats" class="mcts-stats" style="display: none;">
+                        <span>Sims: <b id="statSims" style="color: #38bdf8;">0</b></span>
+                        <span>Depth: <b id="statDepth" style="color: #38bdf8;">0.0</b></span>
+                        <span>Time: <b id="statTime" style="color: #c4b5fd;">0.0s</b></span>
+                    </div>
+                </div>
+                <div class="board-container">
+                    <div id="board" style="width: 450px;"></div>
+                </div>
+            </div>
+            <div id="capturedBlack" class="captured-pieces"></div>
+        </div>
+
+        <div class="controls">
+            <div class="headline">
+                <div>
+                    <h1></h1>
+                    <div class="subtitle"></div>
+                </div>
+                <div id="modePill" class="mode-pill">AI: Club Player</div>
+            </div>
+
+            <div class="move-history">
+                <h3>Move History</h3>
+                <div id="movesList" class="moves-list"></div>
+            </div>
+
+            <div class="controls-bottom">
+                <div id="playButtons">
+                    <div class="button-row">
+                        <button id="btnUndo" class="secondary" style="flex: 1;">Undo</button>
+                        <button id="btnResign" class="danger" style="flex: 1;">Resign</button>
+                    </div>
+                    <button id="btnPredict" class="predict-btn">Predict Moves</button>
+                </div>
+
+                <div id="gameOverButtons" class="game-over-buttons">
+                    <button id="btnAnalyzeMatch" class="accent">Analyze</button>
+                    <button id="btnRetry" class="secondary">Retry</button>
+                    <button id="btnMainMenu" class="secondary">Main Menu</button>
+                </div>
+
+                <div id="reviewBar" class="review-buttons">
+                    <button id="btnFirst" class="secondary">|&lt;</button>
+                    <button id="btnPrev" class="secondary">&lt;</button>
+                    <button id="btnAnalyzePos" class="accent">Analyze</button>
+                    <button id="btnNext" class="secondary">&gt;</button>
+                    <button id="btnLast" class="secondary">&gt;|</button>
+                </div>
+
+                <div class="status">
+                    Status: <span id="status">White to move</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const difficultyLookup = {
+            {% for tier in difficulty_tiers %}
+            "{{ tier.id }}": { name: "{{ tier.name }}", elo: "{{ tier.elo }}", description: "{{ tier.description }}" }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        };
+        const mctsDifficulties = new Set(["grandmaster", "impossible"]);
+        const boardThemes = {
+            wood: {
+                boardLight: "#f2e6cf",
+                boardDark: "#9f6f43",
+                primary: "#b77945",
+                primaryHover: "#996537",
+                accent: "#f59e0b",
+                accentHover: "#d97706",
+                surface: "#2a1e16",
+                surfaceSoft: "rgba(31, 22, 16, 0.78)",
+                appBg: "radial-gradient(circle at top, rgba(245, 158, 11, 0.16), transparent 34%), linear-gradient(180deg, #1b120d 0%, #2a1d14 46%, #140d09 100%)",
+                menuBg: "radial-gradient(circle at top, rgba(251, 191, 36, 0.14), transparent 32%), linear-gradient(135deg, #130d08 0%, #24160f 55%, #382116 100%)",
+                menuBoxBg: "rgba(27, 16, 9, 0.95)"
+            },
+            dark: {
+                boardLight: "#d5d9e0",
+                boardDark: "#4b5563",
+                primary: "#60a5fa",
+                primaryHover: "#3b82f6",
+                accent: "#94a3b8",
+                accentHover: "#64748b",
+                surface: "#121826",
+                surfaceSoft: "rgba(15, 23, 42, 0.78)",
+                appBg: "radial-gradient(circle at top, rgba(96, 165, 250, 0.15), transparent 34%), linear-gradient(180deg, #0b1020 0%, #121826 48%, #06090f 100%)",
+                menuBg: "radial-gradient(circle at top, rgba(148, 163, 184, 0.12), transparent 30%), linear-gradient(135deg, #060910 0%, #121826 56%, #1f2937 100%)",
+                menuBoxBg: "rgba(10, 15, 24, 0.95)"
+            },
+            glass: {
+                boardLight: "#dff7ff",
+                boardDark: "#6ea9c2",
+                primary: "#06b6d4",
+                primaryHover: "#0891b2",
+                accent: "#67e8f9",
+                accentHover: "#22d3ee",
+                surface: "#10202a",
+                surfaceSoft: "rgba(13, 33, 45, 0.76)",
+                appBg: "radial-gradient(circle at top, rgba(34, 211, 238, 0.15), transparent 35%), linear-gradient(180deg, #09161d 0%, #10202a 45%, #071118 100%)",
+                menuBg: "radial-gradient(circle at top, rgba(103, 232, 249, 0.14), transparent 32%), linear-gradient(135deg, #08131a 0%, #102731 55%, #173847 100%)",
+                menuBoxBg: "rgba(8, 24, 31, 0.93)"
+            },
+            forest: {
+                boardLight: "#dce9d5",
+                boardDark: "#4a6b3f",
+                primary: "#4ade80",
+                primaryHover: "#22c55e",
+                accent: "#84cc16",
+                accentHover: "#65a30d",
+                surface: "#152116",
+                surfaceSoft: "rgba(16, 28, 17, 0.78)",
+                appBg: "radial-gradient(circle at top, rgba(74, 222, 128, 0.14), transparent 35%), linear-gradient(180deg, #09110a 0%, #152116 48%, #081007 100%)",
+                menuBg: "radial-gradient(circle at top, rgba(132, 204, 22, 0.14), transparent 32%), linear-gradient(135deg, #081008 0%, #132115 56%, #1f3521 100%)",
+                menuBoxBg: "rgba(11, 22, 11, 0.94)"
+            }
+        };
+
+        let board = null;
+        let game = new Chess();
+        let historyFENs = [game.fen()];
+        let historyStats = [];
+        let reviewIndex = -1;
+        let isReviewMode = false;
+        let isThinking = false;
+        let currentMode = "ai";
+        let currentDifficulty = "club";
+        let isPlayerWhite = true;
+        let selectedBoardTheme = "wood";
+        let pendingStartColor = true;
+        let pollInterval = null;
+        let fakeTimerInterval = null;
+        let lastKnownElapsed = 0;
+        let lastKnownLimit = 0;
+        let currentThinkingMood = "normal";
+        let pendingPromotion = null;
+
+        const $status = $("#status");
+        const pieceImages = {
+            "wp": "https://chessboardjs.com/img/chesspieces/wikipedia/wP.png",
+            "wn": "https://chessboardjs.com/img/chesspieces/wikipedia/wN.png",
+            "wb": "https://chessboardjs.com/img/chesspieces/wikipedia/wB.png",
+            "wr": "https://chessboardjs.com/img/chesspieces/wikipedia/wR.png",
+            "wq": "https://chessboardjs.com/img/chesspieces/wikipedia/wQ.png",
+            "bp": "https://chessboardjs.com/img/chesspieces/wikipedia/bP.png",
+            "bn": "https://chessboardjs.com/img/chesspieces/wikipedia/bN.png",
+            "bb": "https://chessboardjs.com/img/chesspieces/wikipedia/bB.png",
+            "br": "https://chessboardjs.com/img/chesspieces/wikipedia/bR.png",
+            "bq": "https://chessboardjs.com/img/chesspieces/wikipedia/bQ.png"
+        };
+
+        function applyBoardTheme(themeId) {
+            const theme = boardThemes[themeId] || boardThemes.wood;
+            selectedBoardTheme = themeId in boardThemes ? themeId : "wood";
+            const root = document.documentElement;
+            root.style.setProperty("--board-light", theme.boardLight);
+            root.style.setProperty("--board-dark", theme.boardDark);
+            root.style.setProperty("--primary", theme.primary);
+            root.style.setProperty("--primary-hover", theme.primaryHover);
+            root.style.setProperty("--accent", theme.accent);
+            root.style.setProperty("--accent-hover", theme.accentHover);
+            root.style.setProperty("--surface", theme.surface);
+            root.style.setProperty("--surface-soft", theme.surfaceSoft);
+            root.style.setProperty("--app-bg", theme.appBg);
+            root.style.setProperty("--menu-bg", theme.menuBg);
+            root.style.setProperty("--menu-box-bg", theme.menuBoxBg);
+            if (board) {
+                board.position(game.fen(), false);
+            }
+        }
+
+        function setMenuScreen(screenId) {
+            $(".menu-screen").removeClass("active");
+            $("#" + screenId).addClass("active");
+            $("#menuOverlay").show();
+        }
+
+        function syncBoardPosition(animated) {
+            if (!board) {
+                return;
+            }
+            if (animated) {
+                board.position(game.fen());
+            } else {
+                board.position(game.fen(), false);
+            }
+        }
+
+        function syncBoardOrientation(turnOverride) {
+            if (!board) {
+                return;
+            }
+            const sideToShow = turnOverride || game.turn();
+            const orientation = currentMode === "friend"
+                ? (sideToShow === "w" ? "white" : "black")
+                : (isPlayerWhite ? "white" : "black");
+            if (board.orientation() !== orientation) {
+                board.orientation(orientation);
+            }
+        }
+
+        function showPlayControls() {
+            if (isReviewMode) {
+                return;
+            }
+            $("#playButtons").show();
+            $("#gameOverButtons").hide();
+            $("#reviewBar").hide();
+        }
+
+        function showGameOverControls() {
+            if (isReviewMode) {
+                return;
+            }
+            $("#playButtons").hide();
+            $("#gameOverButtons").css("display", "flex");
+            $("#reviewBar").hide();
+        }
+
+        function showReviewControls() {
+            $("#playButtons").hide();
+            $("#gameOverButtons").hide();
+            $("#reviewBar").css("display", "flex");
+        }
+
+        function getMoodColor(mood) {
+            if (mood === "panic") {
+                return "#ef4444";
+            }
+            if (mood === "defensive") {
+                return "#f97316";
+            }
+            return "#c4b5fd";
+        }
+
+        function formatTimeDisplay(elapsed, limit) {
+            const timeText = Number(elapsed || 0).toFixed(1) + "s";
+            if (limit > 0) {
+                return timeText + " / " + Number(limit).toFixed(1) + "s";
+            }
+            return timeText;
+        }
+
+        function resetThinkingMetrics() {
+            currentThinkingMood = "normal";
+            lastKnownElapsed = 0;
+            lastKnownLimit = 0;
+            $("#statSims").text("0");
+            $("#statDepth").text("0.0");
+            $("#statTime").text("0.0s").css("color", getMoodColor(currentThinkingMood));
+        }
+
+        function applyThinkingStatus(data) {
+            const realSims = Number(data.sims) || 0;
+            const realDepth = Number(data.depth) || 0;
+            const realElapsed = Number(data.elapsed) || 0;
+            const realLimit = Number(data.limit) || 0;
+            lastKnownElapsed = realElapsed;
+            lastKnownLimit = realLimit;
+            currentThinkingMood = data.mood || "normal";
+
+            $("#statSims").text(realSims.toLocaleString());
+            $("#statDepth").text(realDepth.toFixed(1));
+            $("#statTime").text(formatTimeDisplay(realElapsed, realLimit)).css("color", getMoodColor(currentThinkingMood));
+
+            if (data.eval !== undefined) {
+                updateEvalBar(data.eval);
+            }
+        }
+
+        function updateModePill() {
+            if (currentMode === "friend") {
+                $("#modePill").text("Vs Friend");
+                return;
+            }
+            $("#modePill").text("AI: " + difficultyLookup[currentDifficulty].name);
+        }
+
+        function updateCapturedPieces() {
+            const boardState = game.board();
+            const captured = { w: { p: 8, n: 2, b: 2, r: 2, q: 1 }, b: { p: 8, n: 2, b: 2, r: 2, q: 1 } };
+
+            for (const row of boardState) {
+                for (const square of row) {
+                    if (square) {
+                        captured[square.color][square.type]--;
+                    }
+                }
+            }
+
+            function render(color, target) {
+                let html = "";
+                for (const type in captured[color]) {
+                    for (let i = 0; i < captured[color][type]; i++) {
+                        html += "<div class=\"captured-piece\" style=\"background-image:url('" + pieceImages[color + type] + "')\"></div>";
+                    }
+                }
+                $(target).html(html);
+            }
+
+            render("w", "#capturedWhite");
+            render("b", "#capturedBlack");
+        }
+
+        function renderMoveHistory() {
+            const hist = game.history();
+            let html = "";
+            for (let i = 0; i < hist.length; i += 2) {
+                const moveNum = (i / 2) + 1;
+                const whiteMove = hist[i];
+                const blackMove = hist[i + 1] ? hist[i + 1] : "";
+                const stats = historyStats[i] || historyStats[i + 1];
+                let statsHtml = "";
+
+                if (stats) {
+                    const timeColor = getMoodColor(stats.mood);
+
+                    statsHtml =
+                        "<div class=\"move-stats\">" +
+                        "<span>S:" + stats.sims + "</span>" +
+                        "<span>D:" + stats.depth + "</span>" +
+                        "<span>Q:" + (stats.q > 0 ? "+" : "") + stats.q + "</span>" +
+                        "<span style=\"color:" + timeColor + "\">" + stats.time + "s</span>" +
+                        "</div>";
+                }
+
+                html +=
+                    "<div class=\"move-row\">" +
+                    "<span style=\"color: var(--text-muted); font-weight: 700;\">" + moveNum + ".</span>" +
+                    "<span>" + whiteMove + "</span>" +
+                    "<span>" + blackMove + "</span>" +
+                    statsHtml +
+                    "</div>";
+            }
+
+            $("#movesList").html(html);
+            const movesContainer = document.querySelector(".move-history");
+            if (movesContainer) {
+                movesContainer.scrollTop = movesContainer.scrollHeight;
+            }
+            updateCapturedPieces();
+        }
+
+        function clearLegalDots() {
+            $("#board .square-55d63").find(".legal-dot, .legal-capture").remove();
+        }
+
+        function clearPredictHighlights() {
+            $("#board .square-55d63").find(".predict-highlight").remove();
+        }
+
+        function updateCheckHighlight() {
+            $("#board .square-55d63").removeClass("king-check");
+            if (!game.in_check()) {
+                return;
+            }
+
+            const boardState = game.board();
+            const side = game.turn();
+            let kingSquare = null;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const piece = boardState[r][c];
+                    if (piece && piece.type === "k" && piece.color === side) {
+                        kingSquare = String.fromCharCode("a".charCodeAt(0) + c) + (8 - r);
+                        break;
+                    }
+                }
+                if (kingSquare) {
+                    break;
+                }
+            }
+
+            if (kingSquare) {
+                $("#board .square-" + kingSquare).addClass("king-check");
+            }
+        }
+
+        function highlightLastMove(fromSquare, toSquare) {
+            $("#board .square-55d63").removeClass("highlight-last");
+            if (fromSquare && toSquare) {
+                $("#board .square-" + fromSquare).addClass("highlight-last");
+                $("#board .square-" + toSquare).addClass("highlight-last");
+            }
+        }
+
+        function highlightLastMoveFromHistory() {
+            const hist = game.history({ verbose: true });
+            if (!hist.length) {
+                highlightLastMove(null, null);
+                return;
+            }
+            const lastMove = hist[hist.length - 1];
+            highlightLastMove(lastMove.from, lastMove.to);
+        }
+
+        function updateStatus() {
+            let statusMessage = "";
+            const moveColor = game.turn() === "w" ? "White" : "Black";
+
+            if (game.game_over()) {
+                if (game.in_checkmate()) {
+                    statusMessage = "Game over, " + moveColor + " is in checkmate.";
+                } else if (game.in_draw()) {
+                    statusMessage = "Game over, drawn position.";
+                } else {
+                    statusMessage = "Game over.";
+                }
+            } else {
+                statusMessage = moveColor + " to move";
+                if (game.in_check()) {
+                    statusMessage += ", " + moveColor + " is in check";
+                }
+            }
+
+            $status.text(statusMessage);
+            updateCheckHighlight();
+        }
+
+        function updateEvalBar(val) {
+            const clamped = Math.max(-1, Math.min(1, val));
+            const whitePercent = 50 + (clamped * 50);
+            $("#evalBar").css({ bottom: "0", top: "auto", height: whitePercent + "%" });
+        }
+
+        function isMctsDifficulty(diff) {
+            return currentMode === "ai" && mctsDifficulties.has(diff);
+        }
+
+        function startStatusPolling() {
+            clearInterval(pollInterval);
+            clearInterval(fakeTimerInterval);
+            if (!isMctsDifficulty(currentDifficulty)) {
+                $("#mctsStats").hide();
+                return;
+            }
+
+            $("#mctsStats").show();
+            resetThinkingMetrics();
+
+            function pollBotStatus() {
+                $.get("/bot_status", function(data) {
+                    if (data.sims !== undefined || data.depth !== undefined || data.elapsed !== undefined) {
+                        applyThinkingStatus(data);
+                    }
+                });
+            }
+
+            pollBotStatus();
+            pollInterval = setInterval(pollBotStatus, 250);
+        }
+
+        function stopStatusPolling() {
+            clearInterval(pollInterval);
+            clearInterval(fakeTimerInterval);
+            if (!isMctsDifficulty(currentDifficulty) || !isThinking) {
+                $("#mctsStats").hide();
+            }
+        }
+
+        function findPromotionMove(source, target) {
+            const moves = game.moves({ square: source, verbose: true });
+            for (const move of moves) {
+                if (move.to === target && move.promotion) {
+                    return move;
+                }
+            }
+            return null;
+        }
+
+        function showPromotionPicker(source, target) {
+            pendingPromotion = { source: source, target: target };
+            $("#promotionOverlay").fadeIn(120);
+        }
+
+        function hidePromotionPicker() {
+            pendingPromotion = null;
+            $("#promotionOverlay").fadeOut(120);
+        }
+
+        function applyHumanMove(source, target, promotionPiece) {
+            const moveData = { from: source, to: target };
+            if (promotionPiece) {
+                moveData.promotion = promotionPiece;
+            }
+
+            const move = game.move(moveData);
+            if (move === null) {
+                return "snapback";
+            }
+
+            clearPredictHighlights();
+            highlightLastMove(source, target);
+            updateStatus();
+            renderMoveHistory();
+            historyFENs.push(game.fen());
+            if (promotionPiece) {
+                syncBoardPosition(false);
+                syncBoardOrientation(game.turn());
+            }
+            submitMove(move);
+            return undefined;
+        }
+
+        function onDragStart(source, piece) {
+            if (game.game_over() || isThinking || isReviewMode) {
+                return false;
+            }
+
+            if ((game.turn() === "w" && piece.search(/^b/) !== -1) || (game.turn() === "b" && piece.search(/^w/) !== -1)) {
+                return false;
+            }
+
+            if (currentMode === "ai") {
+                if ((isPlayerWhite && piece.search(/^b/) !== -1) || (!isPlayerWhite && piece.search(/^w/) !== -1)) {
+                    return false;
+                }
+            }
+
+            clearLegalDots();
+            const moves = game.moves({ square: source, verbose: true });
+            moves.forEach(function(move) {
+                const square = $("#board .square-" + move.to);
+                if (move.flags.includes("c") || move.flags.includes("e")) {
+                    square.prepend("<div class=\"legal-capture\"></div>");
+                } else {
+                    square.prepend("<div class=\"legal-dot\"></div>");
+                }
+            });
+        }
+
+        function onDrop(source, target) {
+            clearLegalDots();
+
+            const promotionMove = findPromotionMove(source, target);
+            if (promotionMove) {
+                showPromotionPicker(source, target);
+                return "snapback";
+            }
+
+            return applyHumanMove(source, target, null);
+        }
+
+        function onSnapEnd() {
+            syncBoardPosition(false);
+            syncBoardOrientation(game.turn());
+        }
+
+        function doPredict() {
+            if (game.game_over() || isThinking || isReviewMode) {
+                return;
+            }
+
+            $status.text("Predicting top moves...");
+            $.get("/predict", function(resp) {
+                updateStatus();
+                clearPredictHighlights();
+                updateEvalBar(resp.eval);
+
+                resp.top_moves.forEach(function(move) {
+                    const opacity = 0.2 + (move.normalized_prob * 0.6);
+                    $("#board .square-" + move.to).append(
+                        "<div class=\"predict-highlight\" style=\"position:absolute; inset:0; background-color:rgba(168, 85, 247, " +
+                        opacity +
+                        "); pointer-events:none; z-index:10; border-radius:4px; box-shadow: inset 0 0 15px rgba(168, 85, 247, 0.4);\"></div>"
+                    );
+                });
+            }).fail(function(err) {
+                console.error(err);
+                updateStatus();
+                alert("Prediction failed. Check the server logs.");
+            });
+        }
+
+        function submitMove(move) {
+            const uci = move.from + move.to + (move.promotion ? move.promotion : "");
+            isThinking = currentMode === "ai";
+            if (currentMode === "ai") {
+                $status.text("Chess-GPT is thinking...");
+                startStatusPolling();
+            } else {
+                $status.text("Move accepted.");
+            }
+
+            $.ajax({
+                url: "/make_move",
+                type: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({ move: uci }),
+                success: function(resp) {
+                    if (resp.bot_move) {
+                        const fromSquare = resp.bot_move.substring(0, 2);
+                        const toSquare = resp.bot_move.substring(2, 4);
+                        const promotion = resp.bot_move.length > 4 ? resp.bot_move[4] : "q";
+                        game.move({ from: fromSquare, to: toSquare, promotion: promotion });
+                        if (resp.bot_stats) {
+                            historyStats[game.history().length - 1] = resp.bot_stats;
+                        }
+                        highlightLastMove(fromSquare, toSquare);
+                        historyFENs.push(game.fen());
+                    }
+
+                    syncBoardPosition(Boolean(resp.bot_move));
+                    syncBoardOrientation(game.turn());
+                    if (resp.eval !== undefined) {
+                        updateEvalBar(resp.eval);
+                    }
+
+                    renderMoveHistory();
+                    updateStatus();
+                    isThinking = false;
+                    stopStatusPolling();
+
+                    if (resp.game_over) {
+                        showGameOver(resp.result);
+                    } else {
+                        showPlayControls();
+                    }
+                },
+                error: function(err) {
+                    console.error(err);
+                    game.undo();
+                    historyFENs.pop();
+                    syncBoardPosition(false);
+                    syncBoardOrientation(game.turn());
+                    highlightLastMoveFromHistory();
+                    updateStatus();
+                    renderMoveHistory();
+                    isThinking = false;
+                    stopStatusPolling();
+                    alert("Move error. Check the server logs.");
+                }
+            });
+        }
+
+        function startNewGame(playAsWhite) {
+            isThinking = true;
+            isPlayerWhite = currentMode === "friend" ? true : playAsWhite;
+            isReviewMode = false;
+            game.reset();
+            historyStats = [];
+            historyFENs = [game.fen()];
+            clearPredictHighlights();
+            highlightLastMove(null, null);
+            updateEvalBar(0.0);
+            renderMoveHistory();
+            showPlayControls();
+
+            syncBoardOrientation("w");
+            board.position("start", false);
+
+            if (currentMode === "ai" && !playAsWhite) {
+                $status.text("Chess-GPT is thinking...");
+                startStatusPolling();
+            } else {
+                $status.text("Starting new game...");
+                stopStatusPolling();
+            }
+
+            $.ajax({
+                url: "/new_game",
+                type: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({ play_as_white: playAsWhite }),
+                success: function(resp) {
+                    if (resp.bot_move) {
+                        const fromSquare = resp.bot_move.substring(0, 2);
+                        const toSquare = resp.bot_move.substring(2, 4);
+                        const promotion = resp.bot_move.length > 4 ? resp.bot_move[4] : "q";
+                        game.move({ from: fromSquare, to: toSquare, promotion: promotion });
+                        if (resp.bot_stats) {
+                            historyStats[game.history().length - 1] = resp.bot_stats;
+                        }
+                        highlightLastMove(fromSquare, toSquare);
+                        historyFENs.push(game.fen());
+                    }
+
+                    syncBoardPosition(Boolean(resp.bot_move));
+                    syncBoardOrientation(game.turn());
+                    if (resp.eval !== undefined) {
+                        updateEvalBar(resp.eval);
+                    }
+
+                    renderMoveHistory();
+                    updateStatus();
+                    updateModePill();
+                    isThinking = false;
+                    stopStatusPolling();
+                    if (resp.game_over) {
+                        showGameOver(resp.result);
+                    }
+                },
+                error: function(err) {
+                    console.error(err);
+                    isThinking = false;
+                    stopStatusPolling();
+                    alert("Failed to start a new game.");
+                }
+            });
+        }
+
+        function configureGame(mode, difficulty) {
+            $("#loadingText").show().text(mode === "friend" ? "Loading 12M analysis model..." : "Loading engine...");
+
+            $.ajax({
+                url: "/configure_game",
+                type: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({ mode: mode, difficulty: difficulty }),
+                success: function(resp) {
+                    currentMode = resp.mode;
+                    currentDifficulty = resp.difficulty;
+                    updateModePill();
+                    $("#loadingText").hide();
+
+                    if (currentMode === "friend") {
+                        pendingStartColor = true;
+                        setMenuScreen("themeMenu");
+                    } else {
+                        setMenuScreen("colorMenu");
+                    }
+                },
+                error: function(xhr) {
+                    $("#loadingText").hide();
+                    const errorText = xhr.responseJSON && xhr.responseJSON.error ? xhr.responseJSON.error : "Unable to load the selected engine.";
+                    alert(errorText);
+                }
+            });
+        }
+
+        function showGameOver(result) {
+            let text = "Draw.";
+            if (result === "1-0") {
+                text = game.in_checkmate() ? "Checkmate. White wins." : "White wins.";
+            } else if (result === "0-1") {
+                text = game.in_checkmate() ? "Checkmate. Black wins." : "Black wins.";
+            }
+            $status.text(text);
+            showGameOverControls();
+        }
+
+        function goToMainMenu() {
+            isThinking = false;
+            isReviewMode = false;
+            stopStatusPolling();
+            clearPredictHighlights();
+            game.reset();
+            historyStats = [];
+            historyFENs = [game.fen()];
+            board.orientation("white");
+            board.position("start", false);
+            highlightLastMove(null, null);
+            updateEvalBar(0.0);
+            renderMoveHistory();
+            updateStatus();
+            showPlayControls();
+            setMenuScreen("mainMenu");
+        }
+
+        function enterReviewMode() {
+            isReviewMode = true;
+            reviewIndex = historyFENs.length - 1;
+            showReviewControls();
+            updateReviewPosition();
+        }
+
+        function updateReviewPosition() {
+            const fen = historyFENs[reviewIndex];
+            board.position(fen, false);
+            $status.text("Reviewing move " + reviewIndex + " / " + (historyFENs.length - 1));
+
+            const tempGame = new Chess(fen);
+            syncBoardOrientation(tempGame.turn());
+            $("#board .square-55d63").removeClass("king-check");
+            if (tempGame.in_check()) {
+                const state = tempGame.board();
+                const side = tempGame.turn();
+                for (let r = 0; r < 8; r++) {
+                    for (let c = 0; c < 8; c++) {
+                        const piece = state[r][c];
+                        if (piece && piece.type === "k" && piece.color === side) {
+                            const square = String.fromCharCode("a".charCodeAt(0) + c) + (8 - r);
+                            $("#board .square-" + square).addClass("king-check");
+                        }
+                    }
+                }
+            }
+            clearPredictHighlights();
+        }
+
+        const config = {
+            draggable: true,
+            position: "start",
+            moveSpeed: 220,
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd,
+            pieceTheme: "https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png"
+        };
+
+        board = Chessboard("board", config);
+        applyBoardTheme(selectedBoardTheme);
+        renderMoveHistory();
+        updateStatus();
+        updateModePill();
+        $(".headline h1").text("ChessTransformer");
+        $(".subtitle").text("Local play with analysis and AI difficulty tiers.");
+
+        $("#btnPredict").on("click", doPredict);
+        $("#btnVsFriend").on("click", function() {
+            configureGame("friend", "club");
+        });
+        $("#btnVsAI").on("click", function() {
+            setMenuScreen("difficultyMenu");
+        });
+        $("#btnBackToMain").on("click", function() {
+            setMenuScreen("mainMenu");
+            $("#loadingText").hide();
+        });
+        $("#btnBackToDifficulty").on("click", function() {
+            setMenuScreen("difficultyMenu");
+        });
+        $("#btnWhiteSelect").on("click", function() {
+            pendingStartColor = true;
+            setMenuScreen("themeMenu");
+        });
+        $("#btnBlackSelect").on("click", function() {
+            pendingStartColor = false;
+            setMenuScreen("themeMenu");
+        });
+        $("#btnBackToPreviousSetup").on("click", function() {
+            setMenuScreen(currentMode === "friend" ? "mainMenu" : "colorMenu");
+        });
+
+        $(".tier-btn").on("click", function() {
+            const tier = $(this).data("tier");
+            currentDifficulty = tier;
+            configureGame("ai", tier);
+        });
+
+        $(".theme-card").on("click", function() {
+            const themeId = $(this).data("theme");
+            applyBoardTheme(themeId);
+            $("#menuOverlay").fadeOut(180);
+            startNewGame(currentMode === "friend" ? true : pendingStartColor);
+        });
+
+        $(".promotion-option").on("click", function() {
+            if (!pendingPromotion) {
+                return;
+            }
+            const piece = $(this).data("piece");
+            const source = pendingPromotion.source;
+            const target = pendingPromotion.target;
+            hidePromotionPicker();
+            applyHumanMove(source, target, piece);
+        });
+
+        $("#promotionCancel").on("click", function() {
+            hidePromotionPicker();
+        });
+
+        $("#btnUndo").on("click", function() {
+            if (isThinking || isReviewMode) {
+                return;
+            }
+
+            $.post("/undo", function(resp) {
+                const undoCount = resp.undo_count || 0;
+                for (let i = 0; i < undoCount; i++) {
+                    if (game.history().length > 0) {
+                        game.undo();
+                        if (historyFENs.length > 1) {
+                            historyFENs.pop();
+                        }
+                    }
+                }
+                historyStats.length = game.history().length;
+                board.position(game.fen(), false);
+                syncBoardOrientation(game.turn());
+                if (resp.eval !== undefined) {
+                    updateEvalBar(resp.eval);
+                }
+                highlightLastMoveFromHistory();
+                renderMoveHistory();
+                updateStatus();
+                showPlayControls();
+            });
+        });
+
+        $("#btnResign").on("click", function() {
+            if (!confirm("Resign and return to the menu?")) {
+                return;
+            }
+            $.post("/resign", function() {
+                goToMainMenu();
+            });
+        });
+
+        $("#btnRetry").on("click", function() {
+            startNewGame(currentMode === "ai" ? isPlayerWhite : true);
+        });
+
+        $("#btnMainMenu").on("click", goToMainMenu);
+        $("#btnAnalyzeMatch").on("click", function() {
+            enterReviewMode();
+        });
+
+        $("#btnFirst").on("click", function() {
+            reviewIndex = 0;
+            updateReviewPosition();
+        });
+        $("#btnLast").on("click", function() {
+            reviewIndex = historyFENs.length - 1;
+            updateReviewPosition();
+        });
+        $("#btnPrev").on("click", function() {
+            if (reviewIndex > 0) {
+                reviewIndex--;
+                updateReviewPosition();
+            }
+        });
+        $("#btnNext").on("click", function() {
+            if (reviewIndex < historyFENs.length - 1) {
+                reviewIndex++;
+                updateReviewPosition();
+            }
+        });
+
+        $("#btnAnalyzePos").on("click", function() {
+            if (!isReviewMode) {
+                return;
+            }
+
+            const fen = historyFENs[reviewIndex];
+            $status.text("Computing top moves...");
+            $.ajax({
+                url: "/predict_fen",
+                type: "POST",
+                contentType: "application/json",
+                data: JSON.stringify({ fen: fen }),
+                success: function(resp) {
+                    clearPredictHighlights();
+                    updateEvalBar(resp.eval);
+                    $status.text("Analysis complete.");
+                    resp.top_moves.forEach(function(move) {
+                        const opacity = 0.2 + (move.normalized_prob * 0.6);
+                        $("#board .square-" + move.to).append(
+                            "<div class=\"predict-highlight\" style=\"position:absolute; inset:0; background-color:rgba(168, 85, 247, " +
+                            opacity +
+                            "); pointer-events:none; z-index:10; border-radius:4px; box-shadow: inset 0 0 15px rgba(168, 85, 247, 0.4);\"></div>"
+                        );
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
