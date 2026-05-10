@@ -999,7 +999,8 @@
         let currentMode = "ai";
         let currentDifficulty = "club";
         let isPlayerWhite = true;
-        let selectedBoardTheme = "wood";
+        const savedBoardTheme = localStorage.getItem("chessTransformer.boardTheme");
+        let selectedBoardTheme = savedBoardTheme && savedBoardTheme in boardThemes ? savedBoardTheme : "wood";
         let pendingStartColor = true;
         let pollInterval = null;
         let fakeTimerInterval = null;
@@ -1025,6 +1026,7 @@
         function applyBoardTheme(themeId) {
             const theme = boardThemes[themeId] || boardThemes.wood;
             selectedBoardTheme = themeId in boardThemes ? themeId : "wood";
+            localStorage.setItem("chessTransformer.boardTheme", selectedBoardTheme);
             const root = document.documentElement;
             root.style.setProperty("--board-light", theme.boardLight);
             root.style.setProperty("--board-dark", theme.boardDark);
@@ -1501,7 +1503,8 @@
                     renderMoveHistory();
                     isThinking = false;
                     stopStatusPolling();
-                    alert("Move error. Check the server logs.");
+                    const errorText = err.responseJSON && err.responseJSON.error ? err.responseJSON.error : "Move error. Check the server logs.";
+                    alert(errorText);
                 }
             });
         }
@@ -1536,6 +1539,16 @@
                 contentType: "application/json",
                 data: JSON.stringify({ play_as_white: playAsWhite }),
                 success: function(resp) {
+                    if (resp.loading) {
+                        $status.text("Loading model...");
+                        $("#menuOverlay").hide();
+                        showPlayControls();
+                        pollUntilModelReady(function() {
+                            startNewGame(playAsWhite);
+                        });
+                        return;
+                    }
+
                     if (resp.bot_move) {
                         const fromSquare = resp.bot_move.substring(0, 2);
                         const toSquare = resp.bot_move.substring(2, 4);
@@ -1567,13 +1580,106 @@
                     console.error(err);
                     isThinking = false;
                     stopStatusPolling();
-                    alert("Failed to start a new game.");
+                    const errorText = err.responseJSON && err.responseJSON.error ? err.responseJSON.error : "Failed to start a new game.";
+                    alert(errorText);
                 }
             });
         }
 
+        function pollUntilModelReady(onReady) {
+            clearInterval(pollInterval);
+            clearInterval(fakeTimerInterval);
+
+            function pollLoadStatus() {
+                $.get("/load_status", function(resp) {
+                    if (resp.status === "ready") {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                        onReady();
+                    } else if (resp.status === "error") {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                        isThinking = false;
+                        $status.text("Model failed to load.");
+                        alert(resp.error || "Model failed to load.");
+                    } else {
+                        $status.text("Loading model...");
+                    }
+                });
+            }
+
+            pollLoadStatus();
+            pollInterval = setInterval(pollLoadStatus, 500);
+        }
+
+        function rebuildGameFromMoves(moves) {
+            game.reset();
+            historyFENs = [game.fen()];
+            historyStats = [];
+            (moves || []).forEach(function(uci) {
+                const fromSquare = uci.substring(0, 2);
+                const toSquare = uci.substring(2, 4);
+                const promotion = uci.length > 4 ? uci[4] : undefined;
+                const moveData = { from: fromSquare, to: toSquare };
+                if (promotion) {
+                    moveData.promotion = promotion;
+                }
+                const move = game.move(moveData);
+                if (move) {
+                    historyFENs.push(game.fen());
+                }
+            });
+        }
+
+        function restoreGameState(resp) {
+            if (!resp || !resp.active) {
+                setMenuScreen("mainMenu");
+                return;
+            }
+
+            currentMode = resp.mode || "ai";
+            currentDifficulty = resp.difficulty || "club";
+            isPlayerWhite = resp.is_player_white !== false;
+            isReviewMode = false;
+            isThinking = false;
+            pendingPromotion = null;
+
+            rebuildGameFromMoves(resp.moves || []);
+            if (resp.fen && resp.fen !== game.fen()) {
+                game.load(resp.fen);
+                historyFENs = [game.fen()];
+            }
+
+            $("#menuOverlay").hide();
+            clearPredictHighlights();
+            highlightLastMoveFromHistory();
+            syncBoardPosition(false);
+            syncBoardOrientation(game.turn());
+            if (resp.eval !== undefined) {
+                updateEvalBar(resp.eval);
+            }
+            renderMoveHistory();
+            updateModePill();
+            updateStatus();
+            stopStatusPolling();
+            if (resp.game_over) {
+                showGameOver(resp.result);
+            } else {
+                showPlayControls();
+            }
+        }
+
+        function hydrateFromServer() {
+            $.get("/state", function(resp) {
+                restoreGameState(resp);
+            }).fail(function(err) {
+                console.error(err);
+                setMenuScreen("mainMenu");
+            });
+        }
+
         function configureGame(mode, difficulty) {
-            $("#loadingText").show().text(mode === "friend" ? "Loading 12M analysis model..." : "Loading engine...");
+            $("#loadingText").show().text("Loading model in background...");
 
             $.ajax({
                 url: "/configure_game",
@@ -1584,7 +1690,8 @@
                     currentMode = resp.mode;
                     currentDifficulty = resp.difficulty;
                     updateModePill();
-                    $("#loadingText").hide();
+                    const loadStatus = resp.load_status && resp.load_status.status ? resp.load_status.status : "loading";
+                    $("#loadingText").text(loadStatus === "ready" ? "Model ready." : "Model loading in background...");
 
                     if (currentMode === "friend") {
                         pendingStartColor = true;
@@ -1714,6 +1821,7 @@
         $(".theme-card").on("click", function() {
             const themeId = $(this).data("theme");
             applyBoardTheme(themeId);
+            $("#loadingText").hide();
             $("#menuOverlay").fadeOut(180);
             startNewGame(currentMode === "friend" ? true : pendingStartColor);
         });
@@ -1765,7 +1873,10 @@
             if (!confirm("Resign and return to the menu?")) {
                 return;
             }
-            $.post("/resign", function() {
+            isThinking = false;
+            isReviewMode = false;
+            stopStatusPolling();
+            $.post("/resign").always(function() {
                 goToMainMenu();
             });
         });
@@ -1799,6 +1910,8 @@
                 updateReviewPosition();
             }
         });
+
+        hydrateFromServer();
 
         $("#btnAnalyzePos").on("click", function() {
             if (!isReviewMode) {

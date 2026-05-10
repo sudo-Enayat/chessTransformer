@@ -48,6 +48,7 @@ class MCTSConfig:
     panic_time: float = 15.0
     cpuct: float = 2.5
     cpuct_init: float = 19652.0
+    cpuct_scale: float = 1.0
     virtual_loss: float = 0.005
     root_noise_alpha: float = 0.0
     root_noise_frac: float = 0.0
@@ -57,7 +58,21 @@ class MCTSConfig:
     cache_capacity: int = 50000
     collect_dup_limit: int = 128
     min_sims: int = 4000
+    max_sims: int = 50000
     use_fp32: bool = True
+    opening_book_file: Path | None = None
+    opening_book_mb: int = 0
+    opening_book_max_entries: int = 0
+    opening_book_max_ply: int = 8
+    opening_book_full_ply: int = 1
+    opening_book_branching: int = 8
+    opening_book_sims: int = 256
+    opening_book_max_seconds: float = 3600.0
+    opening_graph_file: Path | None = None
+    opening_graph_max_ply: int = 16
+    opening_graph_load_min_visits: int = 1
+    opening_graph_load_max_children: int = 0
+    opening_graph_load_max_nodes: int = 1000000
 
 
 def require_cuda(device_name: str) -> torch.device:
@@ -156,14 +171,23 @@ def build_prediction_payload(
 class GreedyBackend:
     def __init__(self, config: GreedyConfig):
         self.config = config
-        self.device = require_cuda(config.device)
+        self.device_name = config.device
+        self.device: torch.device | None = None
         self.model = None
 
     def load(self) -> None:
         if self.model is not None:
             return
+        if self.device is None:
+            self.device = require_cuda(self.device_name)
         self.model = torch.jit.load(str(self.config.model_path), map_location=self.device)
         self.model.eval()
+
+    def is_loaded(self) -> bool:
+        return self.model is not None
+
+    def unload(self) -> None:
+        self.model = None
 
     def sync_position(self, board: chess.Board) -> None:
         _ = board
@@ -187,6 +211,7 @@ class GreedyBackend:
 
     def _evaluate(self, board: chess.Board) -> tuple[torch.Tensor, float, bool]:
         self.load()
+        assert self.device is not None
         pcs, meta, flipped = encode_board(board, self.device)
         with torch.no_grad():
             logits, values = unpack_model_outputs(self.model(pcs, meta))
@@ -282,8 +307,10 @@ class NativeMCTSBackend:
         self._last_eval_history: tuple[str, ...] | None = None
         self._last_eval_abs_q = 0.0
 
-        # Resolve exe path (relative to project root)
-        self._exe_path = str(APP_DIR / "engines" / "native_mcts.exe")
+        # Prefer a freshly rebuilt engine from the training tree when present.
+        built_exe = PROJECT_ROOT / "SSChess_training" / "cpp" / "build" / "native_mcts.exe"
+        fallback_exe = APP_DIR / "engines" / "native_mcts.exe"
+        self._exe_path = str(built_exe if built_exe.exists() else fallback_exe)
 
     # ---- lifecycle ----
 
@@ -291,6 +318,9 @@ class NativeMCTSBackend:
         if self._process is not None and self._process.poll() is None:
             return
         self._start_engine()
+
+    def is_loaded(self) -> bool:
+        return self._process is not None and self._process.poll() is None
 
     def _start_engine(self) -> None:
         import subprocess as _sp
@@ -303,15 +333,35 @@ class NativeMCTSBackend:
             "--panic-time", str(self.config.panic_time),
             "--cpuct", str(self.config.cpuct),
             "--cpuct-init", str(self.config.cpuct_init),
+            "--cpuct-scale", str(self.config.cpuct_scale),
             "--virtual-loss", str(self.config.virtual_loss),
             "--eval-batch-size", str(self.config.eval_batch_size),
             "--cache-capacity", str(self.config.cache_capacity),
             "--collect-dup-limit", str(self.config.collect_dup_limit),
             "--min-sims", str(self.config.min_sims),
+            "--max-sims", str(self.config.max_sims),
             "--progress-interval", str(self.config.progress_interval),
         ]
         if self.config.use_fp32:
             cmd.append("--fp32")
+        if self.config.opening_book_file is not None:
+            cmd.extend(["--opening-cache-file", str(self.config.opening_book_file)])
+        if self.config.opening_book_mb > 0:
+            cmd.extend(["--opening-cache-mb", str(self.config.opening_book_mb)])
+        if self.config.opening_book_max_entries > 0:
+            cmd.extend(["--opening-cache-max-entries", str(self.config.opening_book_max_entries)])
+        if self.config.opening_book_mb > 0 or self.config.opening_book_max_entries > 0:
+            cmd.extend(["--opening-cache-max-ply", str(self.config.opening_book_max_ply)])
+            cmd.extend(["--opening-cache-full-ply", str(self.config.opening_book_full_ply)])
+            cmd.extend(["--opening-cache-branching", str(self.config.opening_book_branching)])
+            cmd.extend(["--opening-book-sims", str(self.config.opening_book_sims)])
+            cmd.extend(["--opening-cache-max-seconds", str(self.config.opening_book_max_seconds)])
+        if self.config.opening_graph_file is not None:
+            cmd.extend(["--opening-graph-file", str(self.config.opening_graph_file)])
+            cmd.extend(["--opening-graph-max-ply", str(self.config.opening_graph_max_ply)])
+            cmd.extend(["--opening-graph-load-min-visits", str(self.config.opening_graph_load_min_visits)])
+            cmd.extend(["--opening-graph-load-max-children", str(self.config.opening_graph_load_max_children)])
+            cmd.extend(["--opening-graph-load-max-nodes", str(self.config.opening_graph_load_max_nodes)])
 
         # The C++ engine links against LibTorch DLLs. When launched from Flask
         # those DLLs won't be on PATH, causing an immediate silent crash.
@@ -532,6 +582,21 @@ class NativeMCTSBackend:
                 self._process.wait(timeout=3)
             except Exception:
                 self._process.kill()
+
+    def unload(self) -> None:
+        if self._process and self._process.poll() is None:
+            try:
+                self._send("quit")
+                self._process.wait(timeout=3)
+            except Exception:
+                self._process.kill()
+        self._process = None
+        self._stdout_queue = None
+        self._stdout_thread = None
+        self._move_history = []
+        self._is_thinking = False
+        self._last_stats = None
+        self._last_eval_history = None
 
 
 # Alias — the web-app tier classes use MCTSBackend, point them at the native one.

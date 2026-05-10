@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from threading import Lock, Thread, Timer
 
 import chess
 from flask import Flask, jsonify, render_template, request
@@ -38,7 +39,7 @@ DIFFICULTY_TIERS = [
     {
         "id": "expert",
         "name": "Expert",
-        "elo": 1740,
+        "elo": 1760,
         "description": "A highly advanced opponent with deep positional understanding.",
         "backend": "expert",
     },
@@ -46,13 +47,13 @@ DIFFICULTY_TIERS = [
         "id": "grandmaster",
         "name": "Grandmaster",
         "elo": 2500,
-        "description": "Searches future timelines to play at a professional Grandmaster level.",
+        "description": "Searches future timelines to play at a Grandmaster level.",
         "backend": "grandmaster",
     },
     {
         "id": "impossible",
         "name": "Impossible",
-        "elo": 2900,
+        "elo": 3020,
         "description": "Superhuman AI, impossible to beat by any human.",
         "backend": "impossible",
     },
@@ -73,7 +74,10 @@ board_obj = chess.Board()
 current_mode = "ai"
 current_difficulty = "club"
 is_player_white = True
+game_active = False
 loaded_backends = {}
+backend_load_jobs = {}
+backend_load_lock = Lock()
 
 
 def get_backend(key: str):
@@ -84,10 +88,83 @@ def get_backend(key: str):
     return backend
 
 
+def unload_backend(key: str) -> None:
+    backend = loaded_backends.pop(key, None)
+    with backend_load_lock:
+        backend_load_jobs.pop(key, None)
+    if backend is not None and hasattr(backend, "unload"):
+        Thread(target=backend.unload, daemon=True).start()
+
+
+def unload_inactive_game_backends(next_key: str | None) -> None:
+    for key in list(loaded_backends):
+        if key in {"friend_eval", "analysis_78m"}:
+            continue
+        if key != next_key:
+            unload_backend(key)
+
+
 def get_ai_backend():
     if current_mode != "ai":
         return None
     return get_backend(current_difficulty)
+
+
+def backend_is_loaded(key: str) -> bool:
+    backend = loaded_backends.get(key)
+    if backend is None:
+        return False
+    if hasattr(backend, "is_loaded"):
+        return bool(backend.is_loaded())
+    return True
+
+
+def start_backend_load(key: str) -> None:
+    backend = get_backend(key)
+    if backend_is_loaded(key):
+        return
+
+    with backend_load_lock:
+        job = backend_load_jobs.get(key)
+        if job and job.get("status") == "loading":
+            return
+        backend_load_jobs[key] = {"status": "loading", "error": None}
+
+    def load_worker() -> None:
+        try:
+            backend.load()
+        except Exception as exc:
+            with backend_load_lock:
+                backend_load_jobs[key] = {"status": "error", "error": str(exc)}
+            return
+        with backend_load_lock:
+            backend_load_jobs[key] = {"status": "ready", "error": None}
+
+    # Let the configure request return and the browser paint the next setup
+    # screen before Torch/LibTorch startup begins competing for resources.
+    timer = Timer(0.25, load_worker)
+    timer.daemon = True
+    timer.start()
+
+
+def backend_load_state(key: str) -> dict:
+    if backend_is_loaded(key):
+        return {"status": "ready", "error": None}
+    with backend_load_lock:
+        job = backend_load_jobs.get(key)
+        if job:
+            return dict(job)
+    return {"status": "idle", "error": None}
+
+
+def ensure_backend_ready(key: str) -> tuple[bool, dict]:
+    state = backend_load_state(key)
+    if state["status"] == "ready":
+        return True, state
+    if state["status"] in {"idle", "error"}:
+        start_backend_load(key)
+        state = backend_load_state(key)
+    return state["status"] == "ready", state
 
 
 def get_display_eval_backend():
@@ -100,6 +177,10 @@ def get_analysis_backend():
     return get_backend("analysis_78m")
 
 
+def selected_backend_key() -> str:
+    return "friend_eval" if current_mode == "friend" else current_difficulty
+
+
 def reset_active_backend() -> None:
     engine = get_ai_backend()
     if engine is not None:
@@ -108,6 +189,9 @@ def reset_active_backend() -> None:
 
 def current_eval() -> float:
     try:
+        key = selected_backend_key()
+        if not backend_is_loaded(key):
+            return 0.0
         return get_display_eval_backend().evaluate_position(board_obj)
     except Exception:
         return 0.0
@@ -131,6 +215,11 @@ def perform_ai_move() -> tuple[str | None, dict | None]:
         time.sleep(1.0)
 
     bot_move = engine.choose_move(board_obj)
+    if bot_move is not None and bot_move not in board_obj.legal_moves:
+        engine.sync_position(board_obj)
+        bot_move = engine.choose_move(board_obj)
+    if bot_move is not None and bot_move not in board_obj.legal_moves:
+        raise RuntimeError(f"Engine returned illegal move: {bot_move.uci()} for {board_obj.fen()}")
     if bot_move is None:
         return None, None
 
@@ -146,14 +235,40 @@ def tier_metadata(difficulty_id: str) -> dict:
     raise KeyError(f"Unknown difficulty: {difficulty_id}")
 
 
+def board_history_uci() -> list[str]:
+    return [move.uci() for move in board_obj.move_stack]
+
+
+def game_state_payload(extra: dict | None = None) -> dict:
+    payload = {
+        "active": game_active,
+        "fen": board_obj.fen(),
+        "moves": board_history_uci(),
+        "game_over": board_obj.is_game_over(),
+        "result": board_obj.result() if board_obj.is_game_over() else None,
+        "eval": current_eval() if game_active else 0.0,
+        "mode": current_mode,
+        "difficulty": current_difficulty,
+        "is_player_white": is_player_white,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
 @app.route("/")
 def index():
     return render_template("index.html", difficulty_tiers=DIFFICULTY_TIERS)
 
 
+@app.route("/state", methods=["GET"])
+def state():
+    return jsonify(game_state_payload())
+
+
 @app.route("/configure_game", methods=["POST"])
 def configure_game():
-    global current_mode, current_difficulty
+    global board_obj, current_mode, current_difficulty, game_active
 
     data = request.get_json(silent=True) or {}
     requested_mode = data.get("mode", "ai")
@@ -164,14 +279,20 @@ def configure_game():
 
     try:
         if requested_mode == "friend":
-            get_backend("friend_eval").load()
+            if current_mode != "friend":
+                unload_inactive_game_backends(None)
+            start_backend_load("friend_eval")
             current_mode = "friend"
             current_difficulty = "club"
         else:
             tier_metadata(requested_difficulty)
-            get_backend(requested_difficulty).load()
+            if current_mode != "ai" or current_difficulty != requested_difficulty:
+                unload_inactive_game_backends(requested_difficulty)
+            start_backend_load(requested_difficulty)
             current_mode = "ai"
             current_difficulty = requested_difficulty
+        board_obj = chess.Board()
+        game_active = False
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
 
@@ -181,16 +302,35 @@ def configure_game():
             "mode": current_mode,
             "difficulty": current_difficulty,
             "needs_color_selection": current_mode == "ai",
+            "load_status": backend_load_state(selected_backend_key()),
         }
     )
 
 
+@app.route("/load_status", methods=["GET"])
+def load_status():
+    return jsonify(backend_load_state(selected_backend_key()))
+
+
 @app.route("/new_game", methods=["POST"])
 def new_game():
-    global board_obj, is_player_white
+    global board_obj, is_player_white, game_active
 
     data = request.get_json(silent=True) or {}
+    backend_key = selected_backend_key()
+    ready, load_state = ensure_backend_ready(backend_key)
+    if not ready:
+        return jsonify(
+            {
+                "loading": True,
+                "load_status": load_state,
+                "mode": current_mode,
+                "difficulty": current_difficulty,
+            }
+        ), 202
+
     board_obj = chess.Board()
+    game_active = True
     bot_move = None
     bot_stats = None
 
@@ -198,7 +338,11 @@ def new_game():
         is_player_white = bool(data.get("play_as_white", True))
         reset_active_backend()
         if not is_player_white:
-            bot_move, bot_stats = perform_ai_move()
+            try:
+                bot_move, bot_stats = perform_ai_move()
+            except Exception as exc:
+                game_active = False
+                return jsonify({"error": str(exc), "fen": board_obj.fen(), "eval": current_eval()}), 500
     else:
         is_player_white = True
         get_backend("friend_eval").load()
@@ -218,7 +362,7 @@ def new_game():
 
 @app.route("/make_move", methods=["POST"])
 def make_move():
-    global board_obj
+    global board_obj, game_active
 
     data = request.get_json(silent=True) or {}
     move_uci = data.get("move")
@@ -234,6 +378,7 @@ def make_move():
         return jsonify({"error": "Illegal move", "fen": board_obj.fen(), "eval": current_eval()}), 400
 
     board_obj.push(move)
+    game_active = True
     engine = get_ai_backend()
     if engine is not None:
         engine.advance_root(move)
@@ -253,7 +398,10 @@ def make_move():
     bot_move = None
     bot_stats = None
     if current_mode == "ai":
-        bot_move, bot_stats = perform_ai_move()
+        try:
+            bot_move, bot_stats = perform_ai_move()
+        except Exception as exc:
+            return jsonify({"error": str(exc), "fen": board_obj.fen(), "eval": current_eval()}), 500
 
     return jsonify(
         {
@@ -287,7 +435,7 @@ def bot_status():
 
 @app.route("/undo", methods=["POST"])
 def undo():
-    global board_obj
+    global board_obj, is_player_white
 
     undo_count = 0
     target = 2 if current_mode == "ai" else 1
@@ -296,17 +444,32 @@ def undo():
         undo_count += 1
 
     reset_active_backend()
+    bot_move = None
+    bot_stats = None
+    if current_mode == "ai" and board_obj.turn != is_player_white and not board_obj.is_game_over():
+        bot_move, bot_stats = perform_ai_move()
 
-    return jsonify({"fen": board_obj.fen(), "eval": current_eval(), "undo_count": undo_count})
+    return jsonify(
+        {
+            "fen": board_obj.fen(),
+            "eval": response_eval(bot_stats),
+            "undo_count": undo_count,
+            "bot_move": bot_move,
+            "bot_stats": bot_stats,
+            "game_over": board_obj.is_game_over(),
+            "result": board_obj.result() if board_obj.is_game_over() else None,
+        }
+    )
 
 
 @app.route("/resign", methods=["POST"])
 def resign():
-    global board_obj
+    global board_obj, game_active
 
     board_obj = chess.Board()
+    game_active = False
     reset_active_backend()
-    return jsonify({"fen": board_obj.fen(), "eval": 0.0})
+    return jsonify(game_state_payload({"eval": 0.0}))
 
 
 @app.route("/predict", methods=["GET"])
