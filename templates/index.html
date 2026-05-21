@@ -137,7 +137,7 @@
         }
 
         .controls {
-            width: 365px;
+            width: 380px;
             display: flex;
             flex-direction: column;
             min-height: 520px;
@@ -146,19 +146,19 @@
         .headline {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             gap: 12px;
             margin-bottom: 16px;
         }
 
         .headline h1 {
-            font-size: 1.85rem;
+            font-size: 1.7rem;
             line-height: 1;
         }
 
         .subtitle {
             color: var(--text-muted);
-            font-size: 0.92rem;
+            font-size: 0.88rem;
             margin-top: 6px;
         }
 
@@ -166,9 +166,9 @@
             background: color-mix(in srgb, var(--primary) 16%, transparent);
             border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
             color: color-mix(in srgb, var(--primary) 55%, white);
-            padding: 8px 12px;
+            padding: 6px 10px;
             border-radius: 999px;
-            font-size: 0.82rem;
+            font-size: 0.8rem;
             white-space: nowrap;
         }
 
@@ -1857,12 +1857,26 @@
                     }
                 }
                 historyStats.length = game.history().length;
+
+                if (resp.bot_move) {
+                    const fromSquare = resp.bot_move.substring(0, 2);
+                    const toSquare = resp.bot_move.substring(2, 4);
+                    const promotion = resp.bot_move.length > 4 ? resp.bot_move[4] : "q";
+                    game.move({ from: fromSquare, to: toSquare, promotion: promotion });
+                    if (resp.bot_stats) {
+                        historyStats[game.history().length - 1] = resp.bot_stats;
+                    }
+                    highlightLastMove(fromSquare, toSquare);
+                    historyFENs.push(game.fen());
+                } else {
+                    highlightLastMoveFromHistory();
+                }
+
                 board.position(game.fen(), false);
                 syncBoardOrientation(game.turn());
                 if (resp.eval !== undefined) {
                     updateEvalBar(resp.eval);
                 }
-                highlightLastMoveFromHistory();
                 renderMoveHistory();
                 updateStatus();
                 showPlayControls();

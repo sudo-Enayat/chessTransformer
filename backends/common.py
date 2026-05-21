@@ -4,7 +4,7 @@ from __future__ import annotations
 import subprocess
 import time
 from queue import Empty, Queue
-from threading import Thread
+from threading import Lock, Thread
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -209,6 +209,9 @@ class GreedyBackend:
     def get_last_stats(self) -> dict | None:
         return None
 
+    def stop_search(self) -> None:
+        pass
+
     def _evaluate(self, board: chess.Board) -> tuple[torch.Tensor, float, bool]:
         self.load()
         assert self.device is not None
@@ -295,6 +298,7 @@ class NativeMCTSBackend:
         self._move_history: list[str] = []
         self._stdout_queue: Queue[str | None] | None = None
         self._stdout_thread: Thread | None = None
+        self._send_lock = Lock()
 
         # Live telemetry (updated from search progress lines)
         self._is_thinking = False
@@ -408,8 +412,12 @@ class NativeMCTSBackend:
 
     def _send(self, line: str) -> None:
         if self._process and self._process.stdin:
-            self._process.stdin.write(line + "\n")
-            self._process.stdin.flush()
+            with self._send_lock:
+                try:
+                    self._process.stdin.write(line + "\n")
+                    self._process.stdin.flush()
+                except Exception as e:
+                    print(f"[native] error sending command {line!r}: {e}", flush=True)
 
     def _read_until(self, prefix: str, *, parse_search: bool = False, timeout: float | None = None) -> str:
         """Read stdout lines until one starts with *prefix*.  Returns that line.
@@ -458,6 +466,10 @@ class NativeMCTSBackend:
             pass
 
     # ---- public interface (matches old MCTSBackend) ----
+
+    def stop_search(self) -> None:
+        if self._process and self._process.poll() is None:
+            self._send("stop")
 
     def sync_position(self, board: chess.Board) -> None:
         self.load()
