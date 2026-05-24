@@ -10,6 +10,18 @@ Web-playable chess UI with:
 - 12M and 78M native MCTS backends
 - board themes, move history, captured pieces, eval bar, prediction, undo, resign, and review tools
 
+The 78M backend defaults to the 80k BF16 TorchScript export for faster native MCTS inference.
+
+## Quick Setup (Recommended)
+
+If you received this as a zip file, just run the one-click setup script:
+
+```powershell
+.\setup.ps1
+```
+
+This will verify your system, create a virtual environment, install all dependencies, and launch the app automatically. You only need **Python 3.12** and an **NVIDIA GPU** installed beforehand.
+
 ## Requirements
 
 - Windows
@@ -19,7 +31,7 @@ Web-playable chess UI with:
 
 ## Repository Notes
 
-- `models/SSChess_12M.pt` and `models/SSChess_78M_FP32.pt` are tracked with Git LFS.
+- `models/SSChess_12M.pt`, `models/SSChess_78M_BF16.pt`, and `models/SSChess_78M_FP32.pt` are tracked with Git LFS.
 - The native MCTS engine binary is included at `engines/native_mcts.exe`.
 - The app is self-contained inside this folder and no longer depends on a sibling `SSChess_training` directory.
 

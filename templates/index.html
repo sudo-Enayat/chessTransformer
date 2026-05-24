@@ -137,7 +137,7 @@
         }
 
         .controls {
-            width: 380px;
+            width: 420px;
             display: flex;
             flex-direction: column;
             min-height: 520px;
@@ -176,10 +176,16 @@
             background: rgba(0, 0, 0, 0.18);
             border-radius: 12px;
             border: 1px solid rgba(255, 255, 255, 0.08);
-            padding: 14px;
+            padding: 12px 14px;
             height: 380px;
             overflow-y: auto;
+            overflow-x: hidden;
             margin-bottom: 14px;
+            scrollbar-width: none;
+        }
+
+        .move-history::-webkit-scrollbar {
+            display: none;
         }
 
         .move-history h3 {
@@ -197,19 +203,22 @@
 
         .move-row {
             display: grid;
-            grid-template-columns: 40px 60px 60px 1fr;
-            gap: 10px;
+            grid-template-columns: 36px minmax(64px, 0.85fr) minmax(64px, 0.85fr) minmax(178px, 1.3fr);
+            gap: 8px;
             align-items: center;
             border-bottom: 1px solid rgba(255, 255, 255, 0.04);
             padding: 6px 0;
+            min-width: 0;
         }
 
         .move-stats {
             display: flex;
             justify-content: flex-end;
-            gap: 6px;
-            font-size: 0.74rem;
+            gap: 5px;
+            font-size: 0.72rem;
             color: var(--text-muted);
+            min-width: 0;
+            white-space: nowrap;
         }
 
         .controls-bottom {
@@ -1138,9 +1147,6 @@
             $("#statDepth").text(realDepth.toFixed(1));
             $("#statTime").text(formatTimeDisplay(realElapsed, realLimit)).css("color", getMoodColor(currentThinkingMood));
 
-            if (data.eval !== undefined) {
-                updateEvalBar(data.eval);
-            }
         }
 
         function updateModePill() {

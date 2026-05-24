@@ -3,7 +3,7 @@ from __future__ import annotations
 from .common import APP_DIR, GreedyBackend, GreedyConfig
 
 
-MODEL_PATH = APP_DIR / "models" / "SSChess_78M_FP32.pt"
+MODEL_PATH = APP_DIR / "models" / "SSChess_78M_BF16.pt"
 DEVICE = "cuda"
 TOP_MOVES = 3
 
