@@ -10,6 +10,7 @@ from flask import Flask, jsonify, render_template, request
 from backends import (
     SeventyEightMBestMoveBackend,
     SeventyEightMMCTSBackend,
+    SeventyEightMMCTSRefereeBackend,
     TwelveMBestMoveBackend,
     TwelveMMCTSBackend,
     TwelveMSecondBestBackend,
@@ -60,7 +61,7 @@ DIFFICULTY_TIERS = [
 ]
 
 BACKEND_FACTORIES = {
-    "friend_eval": TwelveMBestMoveBackend,
+    "friend_eval": SeventyEightMMCTSRefereeBackend,
     "analysis_78m": SeventyEightMBestMoveBackend,
     "novice": TwelveMSecondBestBackend,
     "club": TwelveMBestMoveBackend,
@@ -79,6 +80,7 @@ loaded_backends = {}
 backend_load_jobs = {}
 backend_load_lock = Lock()
 game_lock = Lock()
+friend_evals = [0.0]
 
 
 def stop_thinking_if_any():
@@ -198,6 +200,8 @@ def reset_active_backend() -> None:
 
 
 def current_eval() -> float:
+    if current_mode == "friend":
+        return friend_evals[-1] if friend_evals else 0.0
     try:
         key = selected_backend_key()
         if not backend_is_loaded(key):
@@ -279,7 +283,7 @@ def state():
 
 @app.route("/configure_game", methods=["POST"])
 def configure_game():
-    global board_obj, current_mode, current_difficulty, game_active
+    global board_obj, current_mode, current_difficulty, game_active, friend_evals
 
     stop_thinking_if_any()
     with game_lock:
@@ -306,6 +310,7 @@ def configure_game():
                 current_difficulty = requested_difficulty
             board_obj = chess.Board()
             game_active = False
+            friend_evals = [0.0]
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
 
@@ -327,7 +332,7 @@ def load_status():
 
 @app.route("/new_game", methods=["POST"])
 def new_game():
-    global board_obj, is_player_white, game_active
+    global board_obj, is_player_white, game_active, friend_evals
 
     stop_thinking_if_any()
     with game_lock:
@@ -346,6 +351,7 @@ def new_game():
 
         board_obj = chess.Board()
         game_active = True
+        friend_evals = [0.0]
         bot_move = None
         bot_stats = None
 
@@ -377,7 +383,7 @@ def new_game():
 
 @app.route("/make_move", methods=["POST"])
 def make_move():
-    global board_obj, game_active
+    global board_obj, game_active, friend_evals
 
     data = request.get_json(silent=True) or {}
     move_uci = data.get("move")
@@ -393,11 +399,45 @@ def make_move():
         if move not in board_obj.legal_moves:
             return jsonify({"error": "Illegal move", "fen": board_obj.fen(), "eval": current_eval()}), 400
 
+        prev_eval = friend_evals[-1] if friend_evals else 0.0
+
         board_obj.push(move)
         game_active = True
         engine = get_ai_backend()
         if engine is not None:
             engine.advance_root(move)
+
+        # In vs friend mode, compute evaluation after the move is pushed
+        friend_stats = None
+        if current_mode == "friend":
+            curr_eval = 0.0
+            if board_obj.is_checkmate():
+                curr_eval = 1.0 if board_obj.turn == chess.BLACK else -1.0
+            elif board_obj.is_game_over():
+                curr_eval = 0.0
+            else:
+                referee = get_backend("friend_eval")
+                referee.choose_move(board_obj)
+                stats = referee.get_last_stats()
+                if stats and "q" in stats:
+                    curr_eval = stats["q"]
+                else:
+                    curr_eval = 0.0
+
+            friend_evals.append(curr_eval)
+
+            if board_obj.turn == chess.BLACK:
+                delta = curr_eval - prev_eval
+            else:
+                delta = prev_eval - curr_eval
+
+            is_blunder = delta <= -0.15
+            friend_stats = {
+                "q": round(curr_eval, 3),
+                "delta": round(delta, 3),
+                "is_blunder": is_blunder,
+                "completed_full_move": (len(board_obj.move_stack) % 2 == 0),
+            }
 
         if board_obj.is_game_over():
             return jsonify(
@@ -408,6 +448,7 @@ def make_move():
                     "bot_move": None,
                     "bot_stats": None,
                     "eval": current_eval(),
+                    "friend_stats": friend_stats,
                 }
             )
 
@@ -427,6 +468,7 @@ def make_move():
                 "bot_move": bot_move,
                 "bot_stats": bot_stats,
                 "eval": response_eval(bot_stats),
+                "friend_stats": friend_stats,
             }
         )
 
@@ -451,7 +493,7 @@ def bot_status():
 
 @app.route("/undo", methods=["POST"])
 def undo():
-    global board_obj, is_player_white
+    global board_obj, is_player_white, friend_evals
 
     stop_thinking_if_any()
     with game_lock:
@@ -460,6 +502,11 @@ def undo():
         while undo_count < target and board_obj.move_stack:
             board_obj.pop()
             undo_count += 1
+
+        if current_mode == "friend":
+            for _ in range(undo_count):
+                if len(friend_evals) > 1:
+                    friend_evals.pop()
 
         reset_active_backend()
         bot_move = None

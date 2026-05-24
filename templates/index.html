@@ -1190,26 +1190,73 @@
                 const moveNum = (i / 2) + 1;
                 const whiteMove = hist[i];
                 const blackMove = hist[i + 1] ? hist[i + 1] : "";
-                const stats = historyStats[i] || historyStats[i + 1];
+                
+                let whiteStats = historyStats[i];
+                let blackStats = historyStats[i + 1];
+
+                let whiteLabel = whiteMove;
+                let blackLabel = blackMove;
+
+                if (currentMode === "friend") {
+                    if (whiteStats) {
+                        const sign = whiteStats.delta >= 0 ? "+" : "";
+                        const deltaText = " (" + sign + whiteStats.delta.toFixed(2) + ")";
+                        if (whiteStats.is_blunder) {
+                            whiteLabel = "<span style=\"color: #ef4444; font-weight: 700;\">" + whiteMove + deltaText + "</span>";
+                        } else {
+                            whiteLabel = "<span>" + whiteMove + "<span style=\"color: var(--text-muted); font-size: 0.85em;\">" + deltaText + "</span></span>";
+                        }
+                    }
+                    if (blackStats) {
+                        const sign = blackStats.delta >= 0 ? "+" : "";
+                        const deltaText = " (" + sign + blackStats.delta.toFixed(2) + ")";
+                        if (blackStats.is_blunder) {
+                            blackLabel = "<span style=\"color: #ef4444; font-weight: 700;\">" + blackMove + deltaText + "</span>";
+                        } else {
+                            blackLabel = "<span>" + blackMove + "<span style=\"color: var(--text-muted); font-size: 0.85em;\">" + deltaText + "</span></span>";
+                        }
+                    }
+                } else {
+                    whiteLabel = "<span>" + whiteMove + "</span>";
+                    blackLabel = "<span>" + blackMove + "</span>";
+                }
+
                 let statsHtml = "";
-
-                if (stats) {
-                    const timeColor = getMoodColor(stats.mood);
-
-                    statsHtml =
-                        "<div class=\"move-stats\">" +
-                        "<span>S:" + stats.sims + "</span>" +
-                        "<span>D:" + stats.depth + "</span>" +
-                        "<span>Q:" + (stats.q > 0 ? "+" : "") + stats.q + "</span>" +
-                        "<span style=\"color:" + timeColor + "\">" + stats.time + "s</span>" +
-                        "</div>";
+                if (currentMode === "friend") {
+                    if (blackStats) {
+                        const qVal = blackStats.q;
+                        const isWhiteWinning = qVal > 0.0;
+                        const isBlackWinning = qVal < 0.0;
+                        const sign = qVal > 0.0 ? "+" : "";
+                        const qText = "Q: " + sign + qVal.toFixed(2);
+                        
+                        if (isWhiteWinning) {
+                            statsHtml = "<div class=\"move-stats\"><span style=\"color: #f8fafc; font-weight: 600; background: rgba(255,255,255,0.15); padding: 2px 6px; border-radius: 4px;\">" + qText + "</span></div>";
+                        } else if (isBlackWinning) {
+                            statsHtml = "<div class=\"move-stats\"><span style=\"color: #000000; font-weight: 700; background: #f8fafc; padding: 2px 6px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);\">" + qText + "</span></div>";
+                        } else {
+                            statsHtml = "<div class=\"move-stats\"><span style=\"color: var(--text-muted); font-size: 0.9em;\">" + qText + "</span></div>";
+                        }
+                    }
+                } else {
+                    const stats = historyStats[i] || historyStats[i + 1];
+                    if (stats) {
+                        const timeColor = getMoodColor(stats.mood);
+                        statsHtml =
+                            "<div class=\"move-stats\">" +
+                            "<span>S:" + stats.sims + "</span>" +
+                            "<span>D:" + stats.depth + "</span>" +
+                            "<span>Q:" + (stats.q > 0 ? "+" : "") + stats.q + "</span>" +
+                            "<span style=\"color:" + timeColor + "\">" + stats.time + "s</span>" +
+                            "</div>";
+                    }
                 }
 
                 html +=
                     "<div class=\"move-row\">" +
                     "<span style=\"color: var(--text-muted); font-weight: 700;\">" + moveNum + ".</span>" +
-                    "<span>" + whiteMove + "</span>" +
-                    "<span>" + blackMove + "</span>" +
+                    whiteLabel +
+                    blackLabel +
                     statsHtml +
                     "</div>";
             }
@@ -1455,12 +1502,12 @@
 
         function submitMove(move) {
             const uci = move.from + move.to + (move.promotion ? move.promotion : "");
-            isThinking = currentMode === "ai";
+            isThinking = true;
             if (currentMode === "ai") {
                 $status.text("Chess-GPT is thinking...");
                 startStatusPolling();
             } else {
-                $status.text("Move accepted.");
+                $status.text("Referee bot is analyzing move...");
             }
 
             $.ajax({
@@ -1481,6 +1528,10 @@
                         historyFENs.push(game.fen());
                     }
 
+                    if (currentMode === "friend" && resp.friend_stats) {
+                        historyStats[game.history().length - 1] = resp.friend_stats;
+                    }
+
                     syncBoardPosition(Boolean(resp.bot_move));
                     syncBoardOrientation(game.turn());
                     if (resp.eval !== undefined) {
@@ -1488,9 +1539,9 @@
                     }
 
                     renderMoveHistory();
-                    updateStatus();
                     isThinking = false;
                     stopStatusPolling();
+                    updateStatus();
 
                     if (resp.game_over) {
                         showGameOver(resp.result);
@@ -1505,10 +1556,10 @@
                     syncBoardPosition(false);
                     syncBoardOrientation(game.turn());
                     highlightLastMoveFromHistory();
-                    updateStatus();
                     renderMoveHistory();
                     isThinking = false;
                     stopStatusPolling();
+                    updateStatus();
                     const errorText = err.responseJSON && err.responseJSON.error ? err.responseJSON.error : "Move error. Check the server logs.";
                     alert(errorText);
                 }

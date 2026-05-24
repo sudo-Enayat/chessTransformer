@@ -6,8 +6,8 @@ from .common import APP_DIR, MCTSBackend, MCTSConfig
 MODEL_PATH = APP_DIR / "models" / "SSChess_12M.pt"
 DEVICE = "cuda"
 
-NORMAL_TIME = 5.0
-PANIC_TIME = 20.0
+NORMAL_TIME = 3.0
+PANIC_TIME = 10.0
 CPUCT = 1.0
 CPUCT_INIT = 1000.0
 CPUCT_SCALE = 0.35
