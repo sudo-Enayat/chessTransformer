@@ -683,6 +683,27 @@
             box-shadow: none;
         }
 
+        .result-banner {
+            display: none;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(15, 23, 42, 0.78);
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+
+        .result-banner strong {
+            display: block;
+            color: var(--text-main);
+            font-size: 1.02rem;
+            margin-bottom: 4px;
+        }
+
+        .result-banner span {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
         #board .white-1e1d7 {
             background: var(--board-light);
             color: #5b4630;
@@ -908,6 +929,11 @@
             </div>
 
             <div class="controls-bottom">
+                <div id="resultBanner" class="result-banner">
+                    <strong id="resultTitle">Game over</strong>
+                    <span id="resultDetail"></span>
+                </div>
+
                 <div id="playButtons">
                     <div class="button-row">
                         <button id="btnUndo" class="secondary" style="flex: 1;">Undo</button>
@@ -1017,6 +1043,7 @@
         let lastKnownLimit = 0;
         let currentThinkingMood = "normal";
         let pendingPromotion = null;
+        let currentEvalValue = 0.0;
 
         const $status = $("#status");
         const pieceImages = {
@@ -1080,6 +1107,7 @@
                 : (isPlayerWhite ? "white" : "black");
             if (board.orientation() !== orientation) {
                 board.orientation(orientation);
+                updateEvalBar(currentEvalValue);
             }
         }
 
@@ -1087,6 +1115,7 @@
             if (isReviewMode) {
                 return;
             }
+            $("#resultBanner").hide();
             $("#playButtons").show();
             $("#gameOverButtons").hide();
             $("#reviewBar").hide();
@@ -1102,6 +1131,7 @@
         }
 
         function showReviewControls() {
+            $("#resultBanner").hide();
             $("#playButtons").hide();
             $("#gameOverButtons").hide();
             $("#reviewBar").css("display", "flex");
@@ -1137,6 +1167,7 @@
         function applyThinkingStatus(data) {
             const realSims = Number(data.sims) || 0;
             const realDepth = Number(data.depth) || 0;
+            const realMaxDepth = Number(data.max_depth) || 0;
             const realElapsed = Number(data.elapsed) || 0;
             const realLimit = Number(data.limit) || 0;
             lastKnownElapsed = realElapsed;
@@ -1144,7 +1175,13 @@
             currentThinkingMood = data.mood || "normal";
 
             $("#statSims").text(realSims.toLocaleString());
-            $("#statDepth").text(realDepth.toFixed(1));
+            
+            if (realMaxDepth > 0) {
+                $("#statDepth").text(realMaxDepth + "/" + realDepth.toFixed(1));
+            } else {
+                $("#statDepth").text(realDepth.toFixed(1));
+            }
+            
             $("#statTime").text(formatTimeDisplay(realElapsed, realLimit)).css("color", getMoodColor(currentThinkingMood));
 
         }
@@ -1346,9 +1383,17 @@
         }
 
         function updateEvalBar(val) {
-            const clamped = Math.max(-1, Math.min(1, val));
+            currentEvalValue = Number(val) || 0.0;
+            const clamped = Math.max(-1, Math.min(1, currentEvalValue));
             const whitePercent = 50 + (clamped * 50);
-            $("#evalBar").css({ bottom: "0", top: "auto", height: whitePercent + "%" });
+            const orientation = board ? board.orientation() : "white";
+            if (orientation === "black") {
+                // White is visually at the top when the board is flipped, so
+                // keep the white eval fill attached to that side.
+                $("#evalBar").css({ top: "0", bottom: "auto", height: whitePercent + "%" });
+            } else {
+                $("#evalBar").css({ bottom: "0", top: "auto", height: whitePercent + "%" });
+            }
         }
 
         function isMctsDifficulty(diff) {
@@ -1767,12 +1812,27 @@
 
         function showGameOver(result) {
             let text = "Draw.";
+            let detail = "The game ended without a winner.";
             if (result === "1-0") {
                 text = game.in_checkmate() ? "Checkmate. White wins." : "White wins.";
+                detail = game.in_checkmate() ? "Black has no legal escape." : "Result: 1-0.";
             } else if (result === "0-1") {
                 text = game.in_checkmate() ? "Checkmate. Black wins." : "Black wins.";
+                detail = game.in_checkmate() ? "White has no legal escape." : "Result: 0-1.";
+            } else if (game.in_stalemate && game.in_stalemate()) {
+                text = "Draw by stalemate.";
+                detail = "The side to move has no legal move and is not in check.";
+            } else if (game.in_threefold_repetition && game.in_threefold_repetition()) {
+                text = "Draw by repetition.";
+                detail = "The same position occurred three times.";
+            } else if (game.insufficient_material && game.insufficient_material()) {
+                text = "Draw by insufficient material.";
+                detail = "Neither side has enough material to force mate.";
             }
             $status.text(text);
+            $("#resultTitle").text(text);
+            $("#resultDetail").text(detail);
+            $("#resultBanner").show();
             showGameOverControls();
         }
 

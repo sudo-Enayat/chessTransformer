@@ -9,3 +9,7 @@ tmp/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+syzygy/
+engines/*.exp
+engines/*.lib
+engines/old_native_mcts.exe

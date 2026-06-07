@@ -73,6 +73,11 @@ class MCTSConfig:
     opening_graph_load_min_visits: int = 1
     opening_graph_load_max_children: int = 0
     opening_graph_load_max_nodes: int = 1000000
+    syzygy_path: Path | None = None
+    syzygy_enabled: bool = False
+    syzygy_max_pieces: int = 5
+    syzygy_cache_capacity: int = 8192
+    reuse_tree: bool = True
 
 
 def require_cuda(device_name: str) -> torch.device:
@@ -200,6 +205,7 @@ class GreedyBackend:
             "is_thinking": False,
             "sims": 0,
             "depth": 0.0,
+            "max_depth": 0.0,
             "elapsed": 0.0,
             "limit": 0.0,
             "eval": 0.0,
@@ -304,6 +310,7 @@ class NativeMCTSBackend:
         self._is_thinking = False
         self._sims = 0
         self._depth = 0.0
+        self._max_depth = 0.0
         self._elapsed = 0.0
         self._limit = 0.0
         self._q = 0.0
@@ -366,6 +373,13 @@ class NativeMCTSBackend:
             cmd.extend(["--opening-graph-load-min-visits", str(self.config.opening_graph_load_min_visits)])
             cmd.extend(["--opening-graph-load-max-children", str(self.config.opening_graph_load_max_children)])
             cmd.extend(["--opening-graph-load-max-nodes", str(self.config.opening_graph_load_max_nodes)])
+        if self.config.syzygy_enabled and self.config.syzygy_path is not None:
+            cmd.append("--syzygy-enable")
+            cmd.extend(["--syzygy-path", str(self.config.syzygy_path)])
+            cmd.extend(["--syzygy-max-pieces", str(self.config.syzygy_max_pieces)])
+            cmd.extend(["--syzygy-cache-capacity", str(self.config.syzygy_cache_capacity)])
+        if not self.config.reuse_tree:
+            cmd.append("--no-tree-reuse")
 
         # The C++ engine links against LibTorch DLLs. When launched from Flask
         # those DLLs won't be on PATH, causing an immediate silent crash.
@@ -457,6 +471,10 @@ class NativeMCTSBackend:
                 elif "depth=" in part and "=" in part:
                     depth_str = part.split("=")[1].split("/")
                     self._depth = float(depth_str[0])
+                    if len(depth_str) > 1:
+                        self._max_depth = float(depth_str[1])
+                    else:
+                        self._max_depth = 0.0
                 elif "/" in part and part.endswith("s"):
                     time_parts = part.rstrip("s").split("/")
                     if len(time_parts) == 2:
@@ -489,6 +507,7 @@ class NativeMCTSBackend:
             "is_thinking": self._is_thinking,
             "sims": self._sims,
             "depth": self._depth,
+            "max_depth": self._max_depth,
             "elapsed": round(self._elapsed, 2),
             "limit": round(self._limit, 2),
             "eval": abs_q,
@@ -535,6 +554,7 @@ class NativeMCTSBackend:
         self._is_thinking = True
         self._sims = 0
         self._depth = 0.0
+        self._max_depth = 0.0
         self._elapsed = 0.0
         self._limit = self.config.normal_time
         self._q = 0.0
@@ -577,6 +597,7 @@ class NativeMCTSBackend:
         self._last_stats = {
             "sims": self._sims,
             "depth": round(self._depth, 1),
+            "max_depth": round(self._max_depth, 1),
             "time": round(self._elapsed, 1),
             "q": round(abs_q, 2),
             "mood": "normal",

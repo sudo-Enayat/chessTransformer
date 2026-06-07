@@ -6,12 +6,13 @@ from .common import APP_DIR, MCTSBackend, MCTSConfig
 MODEL_PATH = APP_DIR / "models" / "SSChess_78M_BF16.pt"
 DEVICE = "cuda"
 OPENING_BOOK_FILE = APP_DIR / "engines" / "opening_cache_78m_v3_allroots_cpuct20_1min.scb"
+SYZYGY_PATH = APP_DIR / "syzygy"
 
-NORMAL_TIME = 5.0
-PANIC_TIME = 20.0
-CPUCT = 1.0
+NORMAL_TIME = 8.0
+PANIC_TIME = 32.0
+CPUCT = 0.6
 CPUCT_INIT = 1000.0
-CPUCT_SCALE = 0.35
+CPUCT_SCALE = 0.25
 VIRTUAL_LOSS = 0.001
 ROOT_NOISE_ALPHA = 0.0
 ROOT_NOISE_FRAC = 0.0
@@ -20,8 +21,8 @@ REPLICAS = 1
 PROGRESS_INTERVAL = 0.5
 CACHE_CAPACITY = 2000000
 COLLECT_DUP_LIMIT = 64
-MIN_SIMS = 256
-MAX_SIMS = 50000
+MIN_SIMS = 512
+MAX_SIMS = 200000
 USE_FP32 = False
 OPENING_BOOK_MB = 0
 OPENING_BOOK_MAX_PLY = 8
@@ -56,13 +57,18 @@ class SeventyEightMMCTSBackend(MCTSBackend):
                 min_sims=MIN_SIMS,
                 max_sims=MAX_SIMS,
                 use_fp32=USE_FP32,
-                opening_book_file=OPENING_BOOK_FILE,
+                opening_book_file=None,
                 opening_book_mb=OPENING_BOOK_MB,
                 opening_book_max_ply=OPENING_BOOK_MAX_PLY,
                 opening_book_full_ply=OPENING_BOOK_FULL_PLY,
                 opening_book_branching=OPENING_BOOK_BRANCHING,
                 opening_book_sims=OPENING_BOOK_SIMS,
                 opening_book_max_seconds=OPENING_BOOK_MAX_SECONDS,
+                syzygy_path=SYZYGY_PATH,
+                syzygy_enabled=SYZYGY_PATH.exists(),
+                syzygy_max_pieces=5,
+                syzygy_cache_capacity=8192,
+                reuse_tree=False,
             )
         )
 
@@ -89,12 +95,17 @@ class SeventyEightMMCTSRefereeBackend(MCTSBackend):
                 min_sims=256,
                 max_sims=256,
                 use_fp32=False,
-                opening_book_file=OPENING_BOOK_FILE,
+                opening_book_file=None,
                 opening_book_mb=0,
                 opening_book_max_ply=8,
                 opening_book_full_ply=1,
                 opening_book_branching=8,
                 opening_book_sims=256,
                 opening_book_max_seconds=3600.0,
+                syzygy_path=SYZYGY_PATH,
+                syzygy_enabled=SYZYGY_PATH.exists(),
+                syzygy_max_pieces=5,
+                syzygy_cache_capacity=8192,
+                reuse_tree=False,
             )
         )

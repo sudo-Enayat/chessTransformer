@@ -54,7 +54,7 @@ DIFFICULTY_TIERS = [
     {
         "id": "impossible",
         "name": "Impossible",
-        "elo": 3020,
+        "elo": 3200,
         "description": "Superhuman AI, impossible to beat by any human.",
         "backend": "impossible",
     },
@@ -220,6 +220,40 @@ def response_eval(bot_stats: dict | None = None) -> float:
     return current_eval()
 
 
+def terminal_white_eval(board: chess.Board) -> float | None:
+    if board.is_checkmate():
+        return -1.0 if board.turn == chess.WHITE else 1.0
+    if board.is_game_over():
+        return 0.0
+    return None
+
+
+def immediate_checkmate_move(board: chess.Board) -> chess.Move | None:
+    for move in board.legal_moves:
+        board.push(move)
+        is_mate = board.is_checkmate()
+        board.pop()
+        if is_mate:
+            return move
+    return None
+
+
+def first_bot_move_should_be_greedy() -> bool:
+    return current_mode == "ai" and current_difficulty == "impossible" and len(board_obj.move_stack) <= 1
+
+
+def simple_bot_stats(move_uci: str, q: float, mood: str = "normal") -> dict:
+    return {
+        "sims": 0,
+        "depth": 0.0,
+        "max_depth": 0.0,
+        "time": 0.0,
+        "q": round(q, 2),
+        "mood": mood,
+        "move": move_uci,
+    }
+
+
 def perform_ai_move() -> tuple[str | None, dict | None]:
     engine = get_ai_backend()
     if engine is None:
@@ -228,10 +262,22 @@ def perform_ai_move() -> tuple[str | None, dict | None]:
     if current_difficulty in {"novice", "club", "expert"}:
         time.sleep(1.0)
 
-    bot_move = engine.choose_move(board_obj)
+    stats_override = None
+    bot_move = immediate_checkmate_move(board_obj)
+    if bot_move is not None:
+        stats_override = simple_bot_stats(bot_move.uci(), 1.0 if board_obj.turn == chess.WHITE else -1.0, "mate")
+    elif first_bot_move_should_be_greedy():
+        greedy = get_analysis_backend()
+        bot_move = greedy.choose_move(board_obj)
+        if bot_move is not None:
+            stats_override = simple_bot_stats(bot_move.uci(), 0.0, "greedy")
+    else:
+        bot_move = engine.choose_move(board_obj)
+
     if bot_move is not None and bot_move not in board_obj.legal_moves:
         engine.sync_position(board_obj)
         bot_move = engine.choose_move(board_obj)
+        stats_override = None
     if bot_move is not None and bot_move not in board_obj.legal_moves:
         raise RuntimeError(f"Engine returned illegal move: {bot_move.uci()} for {board_obj.fen()}")
     if bot_move is None:
@@ -239,7 +285,16 @@ def perform_ai_move() -> tuple[str | None, dict | None]:
 
     board_obj.push(bot_move)
     engine.advance_root(bot_move)
-    return bot_move.uci(), engine.get_last_stats()
+    bot_stats = stats_override or engine.get_last_stats()
+    exact_eval = terminal_white_eval(board_obj)
+    if exact_eval is not None:
+        if bot_stats is None:
+            bot_stats = simple_bot_stats(bot_move.uci(), exact_eval, "terminal")
+        else:
+            bot_stats = dict(bot_stats)
+            bot_stats["q"] = round(exact_eval, 2)
+            bot_stats["mood"] = "mate" if board_obj.is_checkmate() else bot_stats.get("mood", "terminal")
+    return bot_move.uci(), bot_stats
 
 
 def tier_metadata(difficulty_id: str) -> dict:
@@ -254,12 +309,13 @@ def board_history_uci() -> list[str]:
 
 
 def game_state_payload(extra: dict | None = None) -> dict:
+    game_over = board_obj.is_game_over()
     payload = {
         "active": game_active,
         "fen": board_obj.fen(),
         "moves": board_history_uci(),
-        "game_over": board_obj.is_game_over(),
-        "result": board_obj.result() if board_obj.is_game_over() else None,
+        "game_over": game_over,
+        "result": board_obj.result() if game_over else None,
         "eval": current_eval() if game_active else 0.0,
         "mode": current_mode,
         "difficulty": current_difficulty,
@@ -372,6 +428,7 @@ def new_game():
             {
                 "fen": board_obj.fen(),
                 "game_over": board_obj.is_game_over(),
+                "result": board_obj.result() if board_obj.is_game_over() else None,
                 "bot_move": bot_move,
                 "bot_stats": bot_stats,
                 "eval": response_eval(bot_stats),
