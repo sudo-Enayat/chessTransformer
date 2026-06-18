@@ -1,4 +1,4 @@
-# Extracts data from a folder of PGN files.
+# extracts data from a folder of pgn files
 
 import glob
 import math

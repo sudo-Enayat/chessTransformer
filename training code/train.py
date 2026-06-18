@@ -1,4 +1,4 @@
-# Training loop code.
+# training loop code
 
 import os
 import warnings

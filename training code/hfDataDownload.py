@@ -1,4 +1,4 @@
-# Directly download Stockfish data of midgames.
+# Directly download stockfish data of midgames
 
 import sys
 import subprocess
